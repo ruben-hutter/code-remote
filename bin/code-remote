@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # code-remote — provision and use a userspace dev environment on a remote host
-# over plain ssh. Local side: rsyncs configs up, runs remote/bootstrap.sh.
+# over plain ssh. Local side: rsyncs configs + the nixos-config flake up, runs
+# remote/bootstrap.sh (home-manager based).
 #
 # usage:
 #   code-remote <ssh-alias>                  connect (default command)
-#   code-remote <ssh-alias> bootstrap        full setup: tools + configs + plugins
-#   code-remote <ssh-alias> sync             re-push configs, re-apply transforms
+#   code-remote <ssh-alias> bootstrap        full setup: nix + home-manager + pi
+#   code-remote <ssh-alias> sync             re-push configs, re-run home-manager
 #   code-remote <ssh-alias> connect [args]   ssh + tmux session manager (or attach)
+#   code-remote <ssh-alias> bootstrap-legacy pre-home-manager bash bootstrap (v1)
 #   extra args after the command are passed through to ssh
 #   legacy order (code-remote <command> <ssh-alias>) still accepted
 set -euo pipefail
@@ -18,9 +20,10 @@ source "$DIR/code-remote.conf"
 usage() {
   cat >&2 <<'EOF'
 usage: code-remote <ssh-alias>                 connect (default command)
-       code-remote <ssh-alias> bootstrap       full setup: tools + configs + plugins
-       code-remote <ssh-alias> sync            re-push configs, re-apply transforms
+       code-remote <ssh-alias> bootstrap       full setup: nix + home-manager + pi
+       code-remote <ssh-alias> sync            re-push configs, re-run home-manager
        code-remote <ssh-alias> connect [args]  ssh + tmux session picker (or attach)
+       code-remote <ssh-alias> bootstrap-legacy  v1 bash bootstrap (pre-home-manager)
 
   extra args after the command are forwarded to ssh (e.g. port forwards).
   legacy order still accepted: code-remote <bootstrap|sync|connect> <ssh-alias>
@@ -28,7 +31,7 @@ EOF
   exit 1
 }
 
-is_cmd() { case " bootstrap sync connect " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+is_cmd() { case " bootstrap sync connect bootstrap-legacy " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 [ $# -ge 1 ] || usage
 CMD="connect"
@@ -48,7 +51,9 @@ info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 # nvim: Lazy! sync can drift from lazy-lock.json when upstream force-pushes
 # (pinned commits unreachable from a fresh clone). Re-push the local lock and
-# restore the exact pins.
+# restore the exact pins. LEGACY ONLY: with home-manager the remote nvim config
+# is a read-only store symlink whose lazy-lock.json is vendored in the
+# nixos-config repo — bump it there instead.
 pin_nvim_lock() {
   [ -f "$NVIM_CONFIG_DIR/lazy-lock.json" ] || return 0
   rsync -az "$NVIM_CONFIG_DIR/lazy-lock.json" "$HOST:.config/nvim/lazy-lock.json"
@@ -85,31 +90,16 @@ sync_pi_keys() {
   rm -f "$tmp"
 }
 
-push_configs() {
-  local r="$HOST"
+push_data_configs() {
+  # Everything home-manager does NOT own: user data synced from this machine.
+  local r="$HOST" f s
 
-  rc "$r" 'mkdir -p ~/.config/tmux/plugins ~/.pi/agent ~/.config ~/.agents ~/scripts'
-
-  info "rsyncing configs to $r"
-  rsync -az --delete "$NVIM_CONFIG_DIR/" "$r:.config/nvim/"
-  rsync -az "$HOME/.tmux.conf" "$r:.tmux.conf"
-  rsync -az --delete "$HOME/.config/tmux/plugins/" "$r:.config/tmux/plugins/"
-
-  # bash: interactive shell config + aliases (.bashrc-personal is sourced by
-  # .bashrc). bootstrap.sh strips local-only bits and adds managed blocks on top.
-  if [ -f "$HOME/.bashrc" ]; then
-    rsync -az "$HOME/.bashrc" "$r:.bashrc"
-  fi
+  # personal aliases — plain data, sourced by the HM-generated .bashrc
   if [ -f "$HOME/.bashrc-personal" ]; then
     rsync -az "$HOME/.bashrc-personal" "$r:.bashrc-personal"
   fi
 
-  if [ -f "$HOME/.config/starship.toml" ]; then
-    rsync -az "$HOME/.config/starship.toml" "$r:.config/"
-  fi
-
   # pi: config-level files only; sessions/, install/, npm/, bin/ never leave here
-  local f
   for f in "${PI_FILES[@]}"; do
     if [ -e "$HOME/.pi/agent/$f" ]; then
       rsync -az "$HOME/.pi/agent/$f" "$r:.pi/agent/"
@@ -118,14 +108,6 @@ push_configs() {
   rsync -az --delete "${PI_EXCLUDES[@]}" \
     "$HOME/.pi/agent/extensions/" "$r:.pi/agent/extensions/"
   rsync -az --delete "$HOME/.pi/agent/agents/" "$r:.pi/agent/agents/"
-
-  # helper scripts the remote actually uses (tmux session picker, wtree)
-  local s
-  for s in "${REMOTE_SCRIPTS[@]}"; do
-    if [ -e "$SCRIPTS_DIR/$s" ]; then
-      rsync -az "$SCRIPTS_DIR/$s" "$r:scripts/"
-    fi
-  done
 
   # skills: local symlink farm -> dereferenced real files on the remote
   if [ -d "$SKILLS_DIR" ]; then
@@ -143,7 +125,7 @@ push_configs() {
         var="${line%%:*}"; entry="${line#*:}"
         val="$(pass show "$entry" 2>/dev/null | head -n 1 | tr -d '\r')"
         if [ -n "$val" ]; then
-          printf "export %s='%s'\n" "$var" "$(printf '%s' "$val" | sed "s/'/'\\\\''/g")"
+          printf "export %s='%s'\n" "$var" "$(printf '%s' "$val" | sed "s/'/'\\''/g")"
         else
           info "passenv: pass show $entry failed — $var not set"
         fi
@@ -166,36 +148,100 @@ push_configs() {
   fi
 }
 
+push_nixos_config() {
+  # The declarative remote config: ~/repos/nixos-config/master → ~/nixos-config
+  # on the remote. home/remote-user.nix is written ON the remote (per-host
+  # username) and therefore excluded here. ~/.local/bin nvim/pin tricks are
+  # gone — the vendored nvim config + lazy-lock.json in this repo pin plugins.
+  local r="$HOST"
+  [ -d "$NIXOS_CONFIG_DIR" ] || { echo "NIXOS_CONFIG_DIR not found: $NIXOS_CONFIG_DIR" >&2; exit 1; }
+  info "rsyncing nixos-config to $r"
+  rsync -az --delete \
+    --exclude=.git --exclude=.bare --exclude='result*' \
+    --exclude=home/remote-user.nix \
+    "$NIXOS_CONFIG_DIR/" "$r:nixos-config/"
+  rc "$r" 'printf "{ name = \"$(id -un)\"; home = \"$HOME\"; }\n" > ~/nixos-config/home/remote-user.nix'
+}
+
+push_configs() {
+  # LEGACY (v1 bash bootstrap): pushes raw configs the old script transforms
+  # on the remote. The home-manager flow uses push_data_configs instead —
+  # nvim/tmux/bashrc/starship/scripts are owned by the HM generation there.
+  local r="$HOST"
+
+  rc "$r" 'mkdir -p ~/.config/tmux/plugins ~/.pi/agent ~/.config ~/.agents ~/scripts'
+
+  info "rsyncing configs to $r"
+  rsync -az --delete "$NVIM_CONFIG_DIR/" "$r:.config/nvim/"
+  rsync -az "$HOME/.tmux.conf" "$r:.tmux.conf"
+  rsync -az --delete "$HOME/.config/tmux/plugins/" "$r:.config/tmux/plugins/"
+
+  # bash: interactive shell config + aliases (.bashrc-personal is sourced by
+  # .bashrc). bootstrap-legacy.sh strips local-only bits and adds managed blocks.
+  if [ -f "$HOME/.bashrc" ]; then
+    rsync -az "$HOME/.bashrc" "$r:.bashrc"
+  fi
+
+  if [ -f "$HOME/.config/starship.toml" ]; then
+    rsync -az "$HOME/.config/starship.toml" "$r:.config/"
+  fi
+
+  # helper scripts the remote actually uses (tmux session picker, wtree) —
+  # legacy only: the HM profile installs ~/scripts from the scripts flake input
+  local s
+  for s in "${REMOTE_SCRIPTS[@]}"; do
+    if [ -e "$SCRIPTS_DIR/$s" ]; then
+      rsync -az "$SCRIPTS_DIR/$s" "$r:scripts/"
+    fi
+  done
+
+  push_data_configs
+}
+
 case "$CMD" in
   bootstrap)
+    # v2: home-manager flow — push data configs + the nixos-config flake;
+    # bashrc/tmux/nvim/starship/scripts are owned by the HM generation there
+    push_data_configs
+    push_nixos_config
+    info "uploading bootstrap script"
+    rc "$HOST" 'mkdir -p ~/.code-remote'
+    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
+    info "running bootstrap on $HOST (nix + home-manager + pi)"
+    rc -t "$HOST" 'bash ~/.code-remote/bootstrap.sh all'
+    info "done — connect with: code-remote connect $HOST"
+    ;;
+  sync)
+    # re-push data + flake, re-activate the HM generation (idempotent: nix
+    # skips unchanged deps, HM only rewrites what moved)
+    push_data_configs
+    push_nixos_config
+    info "uploading bootstrap script"
+    rc "$HOST" 'mkdir -p ~/.code-remote'
+    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
+    rc -t "$HOST" 'bash ~/.code-remote/bootstrap.sh hm'
+    info "done"
+    ;;
+  bootstrap-legacy)
+    # v1 bash bootstrap: raw config push + transforms on the remote
     push_configs
     info "uploading bootstrap script"
     rc "$HOST" 'mkdir -p ~/.code-remote'
     rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
-    info "running bootstrap on $HOST (tools + configs)"
-    rc -t "$HOST" 'bash ~/.code-remote/bootstrap.sh all'
+    info "running legacy bootstrap on $HOST (tools + configs)"
+    rc -t "$HOST" 'bash ~/.code-remote/bootstrap-legacy.sh all'
     pin_nvim_lock
     info "done — connect with: code-remote connect $HOST"
     ;;
-  sync)
-    push_configs
-    info "re-applying remote config transforms"
-    # always refresh the installer itself so remote edits propagate
-    rc "$HOST" 'mkdir -p ~/.code-remote'
-    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
-    rc "$HOST" 'bash ~/.code-remote/bootstrap.sh configs'
-    pin_nvim_lock
-    info "done"
-    ;;
   connect)
-    # PATH set explicitly: the ssh command runs a non-interactive shell whose
-    # .bashrc may bail out before any PATH line (distro interactivity guard),
-    # and ~/.local/bin (fzf, nvim, …) must be visible regardless
+    # PATH set explicitly: the ssh command runs a non-interactive shell that
+    # may not source .profile (nix profile) — ~/.local/bin (pi, shims),
+    # ~/.nix-profile/bin (HM tools) and ~/scripts must be visible regardless
     if rc "$HOST" 'test -x ~/scripts/tmux_session_manager.sh' 2>/dev/null; then
-      rc -t "$HOST" 'export PATH="$HOME/.local/bin:$HOME/scripts:$PATH"; exec ~/scripts/tmux_session_manager.sh'
+      rc -t "$HOST" 'export PATH="$HOME/.local/bin:$HOME/.nix-profile/bin:$HOME/scripts:$PATH"; exec ~/scripts/tmux_session_manager.sh'
       exit $?
     fi
-    rc -t "$HOST" 'export PATH="$HOME/.local/bin:$HOME/scripts:$PATH"; tmux new-session -A -s '"$TMUX_SESSION"
+    rc -t "$HOST" 'export PATH="$HOME/.local/bin:$HOME/.nix-profile/bin:$HOME/scripts:$PATH"; tmux new-session -A -s '"$TMUX_SESSION"
     ;;
   *)
     usage

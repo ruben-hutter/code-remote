@@ -10,10 +10,10 @@ see README. Commands below assume the local repo root and an ssh alias
 What the VM needs before you start:
 
 - ssh access with your key (`ssh proxcode whoami` must work)
-- **tmux** (userspace can't provide it) — or sudo rights so bootstrap can
-  `apt install tmux` for you
+- **sudo** — nix needs it once (`/nix` + daemon users); everything else
+  installs into `~/.nix-profile` and `~/.local` with no root
 - git / curl / tar / unzip — bootstrap checks these and sudo-installs missing
-  ones; everything else installs into `~/.local` with **no root**
+  ones
 
 New VM with a new IP? Update `HostName` under the `Host proxcode` block in
 `~/.ssh/config`, clear stale keys (`ssh-keygen -R <ip>`), reconnect with
@@ -24,7 +24,7 @@ before trusting it.
 Baseline check — home should be clean:
 
 ```sh
-ssh proxcode 'for t in nvim tmux git curl pi; do command -v $t || echo "no $t"; done; ls ~/.pi ~/.config/nvim ~/.tmux.conf 2>/dev/null'
+ssh proxcode 'for t in nix tmux git curl pi; do command -v $t || echo "no $t"; done'
 ```
 
 ## 1. The one command
@@ -35,28 +35,27 @@ bin/code-remote proxcode bootstrap
 
 What happens, in order:
 
-1. **push_configs** — rsync from your machine:
-   `~/.config/nvim/` (--delete), `~/.tmux.conf` (raw, transformed later),
-   `~/.config/tmux/plugins/` (--delete), `~/.bashrc` + `~/.bashrc-personal`
-   (raw, transformed later), `~/.config/starship.toml`,
+1. **push_data_configs** — rsync from your machine: `~/.bashrc-personal`,
    pi config files (`settings.json`, `keybindings.json`, `AGENTS.md`,
    `trust.json`, `models-store.json`), `extensions/` (minus `gondolin/`,
    `blink1.ts`), `agents/`, `~/.agents/skills/` (dereferenced via `-L`),
-   `~/scripts/{tmux_session_manager.sh,wtree.sh}`, `~/.config/code-remote/passenv`
-   (from `PASS_ENVARS`, resolved locally via pass), pi keys resolved into
-   remote `auth.json` (`!pass show …` commands executed locally, literal keys
-   written).
+   `~/.config/code-remote/passenv` (from `PASS_ENVARS`, resolved locally via
+   pass), pi keys resolved into remote `auth.json` (`!pass show …` commands
+   executed locally, literal keys written).
    **Never synced:** `sessions/`, `install/`, `npm/`, `bin/`, your local
    `auth.json` (the remote gets resolved keys via the merge above; it keeps
    its own credentials otherwise, `SYNC_PI_AUTH=1` only seeds an empty one).
-2. Upload `remote/bootstrap.sh` → `~/.code-remote/bootstrap.sh`
-3. Run it remotely (`all` mode): base tools → nvim → node → static CLI tools →
-   pi (`pi update --extensions` reconciles declared packages) → tmux.conf
-   transform (local-only bits + unsupported options stripped) + managed blocks →
-   tpm + tmux plugins → `nvim --headless "+Lazy! sync"` (plugins pinned by
-   `lazy-lock.json`)
+2. **push_nixos_config** — `~/repos/nixos-config/master/` → `~/nixos-config/`
+   (minus `.git`, `result*`, `home/remote-user.nix`), then writes
+   `home/remote-user.nix` on the host (its own uid/home).
+3. Upload `remote/bootstrap.sh` → `~/.code-remote/`
+4. Run it remotely (`all` mode): base check → nix install (sudo, daemon) →
+   pre-HM files moved aside (`*.pre-home-manager`) → `nix build
+   ~/nixos-config#homeConfigurations.remote.activationPackage` → activate →
+   pi + `pi update --extensions` → OSC shims → `nvim --headless "+Lazy! sync"`.
 
-It is idempotent — re-run any time; already-current tools are skipped.
+It is idempotent — re-run any time; nix is skipped when present and HM
+activation only rewrites what moved.
 
 ## 2. Verify each layer by hand
 
@@ -64,117 +63,96 @@ It is idempotent — re-run any time; already-current tools are skipped.
 ssh proxcode
 ```
 
-**Tools** (paths + versions):
+**nix + home-manager** (the foundation):
 
 ```sh
-export PATH="$HOME/.local/bin:$PATH"
-for t in nvim node rg fd fzf lazygit bat starship jq pi; do
-  printf '%-9s' "$t"; command -v "$t" && "$t" --version | head -1
-done
+nix --version                                     # nix (Nix) 2.35.4 (bootstrap-pinned)
+readlink ~/.nix-profile                           # …-home-manager-generation (or -<N>-link)
+home-manager generations 2>/dev/null || true      # bare activate skips this; fine
+grep experimental-features ~/.config/nix/nix.conf # = nix-command flakes
+ls -la ~/.config/tmux/tmux.conf ~/.config/nvim ~/.config/starship.toml   # store symlinks
 ```
 
-Expected: everything found under `~/.local/bin`, versions matching the pins at
-the top of `remote/bootstrap.sh`.
-
-**nvim** — config + plugins:
+**Tools** (paths + versions — all from the HM profile, versions = flake.lock):
 
 ```sh
-ls ~/.config/nvim                      # your config
+for t in nvim tmux node rg fd fzf lazygit bat starship jq direnv gcc; do
+  printf '%-9s' "$t"; command -v "$t" && "$t" --version 2>/dev/null | head -1
+done
+echo $PATH | tr ':' '\n' | grep -nE 'nix-profile|\.local/bin'   # profile + local bins
+```
+
+**nvim** — store-owned config + plugins:
+
+```sh
+ls -la ~/.config/nvim              # symlink into /nix/store (hm_nvim)
 ls ~/.local/share/nvim/lazy | wc -l    # plugin count > 0 (Lazy! sync ran)
 nvim --headless '+checkhealth' +qa     # or just open nvim and :checkhealth
 ```
 
-**tmux** — transform + plugins:
+Config edits happen in `~/repos/nixos-config/home/programs/nvim/` (local), then
+`code-remote proxcode sync` re-vendors + re-activates. `:Lazy update` in the
+remote nvim cannot persist — the store config is read-only.
+
+**bash** — HM-generated, with synced data sourced:
 
 ```sh
-head -1 ~/.tmux.conf                   # "# transformed by code-remote: …"
-grep -nE '^set -g (default-command|.*scripts/)' ~/.tmux.conf   # no hits (comments ok)
-tmux -L t -f /dev/null new-session -d && tmux -L t source-file ~/.tmux.conf   # no warnings
+head -3 ~/.bashrc                          # HM header (read-only store symlink)
+grep -n 'bashrc-personal\|passenv' ~/.bashrc   # both sourced in initExtra
+grep -n 'direnv hook\|starship init\|fzf --bash' ~/.bashrc   # hooks wired by HM
+bash -ic 'alias ll'                        # aliases from .bashrc-personal work
+bash -ic 'echo ${OPENROUTER_API_KEY:+set}' # set (passenv file)
+```
+
+**tmux** — HM-owned config, OSC52 yank:
+
+```sh
+ls ~/.config/tmux/tmux.conf                # store symlink; NO ~/.tmux.conf (moved aside)
+tmux -L t -f /dev/null new-session -d && tmux -L t source-file ~/.config/tmux/tmux.conf && echo ok
 tmux -L t kill-server
-tmux list-keys | grep 'copy-mode-vi y ' | grep -q wl-copy && echo yank-ok     # OSC52 shim bound, not the error binding
-ls ~/.local/bin/wl-copy                                # shim present (headless hosts only)
-ls ~/.local/bin/notify-send                            # OSC shim present (headless hosts only)
-notify-send "test" "from $(hostname)"                  # exit 0; tmux status line / OSC escapes, never a crash
-ls ~/.tmux/plugins                     # tpm, tmux-yank, catppuccin, …
-tmux                                   # start: prefix is C-a, catppuccin bar, truecolor
+ls ~/scripts/tmux_session_manager.sh       # from the scripts flake input (pinned)
 ```
 
-**bash** — pushed config + managed blocks:
-
-```sh
-grep -nE 'fastfetch' ~/.bashrc                  # no hits (local-only, stripped)
-grep -c 'direnv hook bash' ~/.bashrc            # exactly 1 — managed block (fallback eval)
-tail ~/.bashrc                                   # "# >>> code-remote >>>" block
-ls ~/.bashrc-personal                            # your aliases, pushed as-is
-bash -ic 'echo $PATH; alias ll'                  # ~/.local/bin first; alias works
-grep -c '"!pass' ~/.pi/agent/auth.json           # 0 — keys are literal on remotes
-pi auth check --provider zai                     # ready
-pi auth check --provider fhnw-cybersec           # ready
-pi --list-models | grep -c '^zai '               # 7-ish, not 0
-bash -ic 'echo ${OPENROUTER_API_KEY:+set}'       # set (passenv file)
-```
-
-**nix + direnv** — flake dev shells (LiveTogether-style):
-
-```sh
-direnv --version                                 # 2.38.x (bootstrap-pinned)
-nix --version                                    # nix (Nix) 2.35.4 (after re-login: managed block sources nix.sh)
-grep experimental-features ~/.config/nix/nix.conf # = nix-command flakes
-cd ~/some-flake-repo && direnv allow             # dev shell activates, PATH gains nix store bins
-bash -ic 'command -v direnv'                     # ~/.local/bin/direnv (PATH block runs even non-interactively)
-```
+Clipboard + notifications (inside the tmux session): `C-a [`, select, `y`,
+paste on your **local** machine (OSC52 shim → terminal). `notify-send test`
+→ tmux status line + OSC 9/777, never a crash.
 
 **pi** — binaries, config, packages, credentials:
 
 ```sh
 pi --version
 pi list                                # catppuccin-pi-theme installed
-ls ~/.pi/agent/                        # settings.json, AGENTS.md, skills? no —
-ls ~/.agents/skills | wc -l            # skills live here (35-ish)
-ls ~/.pi/agent/auth.json               # absent on purpose — see next step
-pi                                     # → /login → authenticate (zai)
+grep -c '"!pass' ~/.pi/agent/auth.json # 0 — keys are literal on remotes
+ls ~/.agents/skills | wc -l            # skills synced (35-ish)
 ```
 
-**Clipboard** — inside that tmux session: `C-a [`, select text, `y`, then
-paste on your **local** machine. Works via tmux-yank's OSC52 fallback (no X
-on the VM). Note: nvim's own `y` stays remote (README, Known limits).
-
-## 3. The continuity test (the whole point)
-
-1. `bin/code-remote proxcode connect` (or just `bin/code-remote proxcode`) → tmux session `home`
-2. start `pi` on a long task (or just `nvim`, some split panes)
-3. close your laptop / kill the local terminal
-4. reconnect from any machine, `tmux attach` — session intact, pi still working
-
-## 4. Drift: `sync`
-
-Change something locally (nvim config line, a skill, pi setting), then:
+**nix dev shells** (LiveTogether-style):
 
 ```sh
-bin/code-remote proxcode sync
+cd ~/some-flake-repo && echo 'use flake' > .envrc && direnv allow   # dev shell activates
+bash -ic 'command -v nix'         # ~/.nix-profile/bin/nix
 ```
 
-Re-pushes configs (same rsync set), re-applies the tmux transform. Verify the
-change landed remotely. Re-running `bootstrap` instead also **upgrades tools**
-to the pinned versions (edit pins in `remote/bootstrap.sh` first).
-
-## 5. Reset a VM to zero
+**migrated v1 remote?** Also check the setaside files survived:
 
 ```sh
-ssh proxcode 'rm -rf ~/.local/bin ~/.local/opt ~/.pi ~/.agents \
-  ~/.config/nvim ~/.config/tmux ~/.tmux.conf ~/.tmux ~/.code-remote'
-ssh proxcode "sed -i '/^# >>> code-remote >>>/,/^# <<< code-remote <<</d' ~/.bashrc"
+ls ~/.bashrc.pre-home-manager ~/.tmux.conf.pre-home-manager 2>/dev/null   # old configs
+ls ~/.config/tmux/plugins 2>/dev/null                                     # gone (tpm removed)
 ```
 
-Then start again at step 1.
+## 3. Update paths
 
-## Known pitfalls (learned the hard way)
+```sh
+bin/code-remote proxcode sync          # re-push data + flake, re-activate HM
+# bump tools: in ~/repos/nixos-config: nix flake update && commit lock, then sync
+# bump nvim plugins: update locally, copy ~/.config/nvim/lazy-lock.json into
+#   ~/repos/nixos-config/home/programs/nvim/, commit, then sync
+# v1 bash flow (escape hatch): bin/code-remote proxcode bootstrap-legacy
+```
 
-- **Fresh host without tmux and without sudo** → bootstrap dies with a clear
-  message; install tmux first.
-- **debconf noise** during apt (unzip etc.) is harmless — passwordless sudo
-  hosts install silently, others need the `ssh -t` tty bootstrap already uses.
-- **Mason / tree-sitter builds** need gcc/make — not provisioned (README).
-- **pi credentials are never synced onto an existing remote** — `/login` there.
-- Don't run `sync` against a host whose tmux.conf you hand-tuned: it gets
-  replaced by the transformed local one.
+## Known rough edges (see README Known limits)
+
+- `ssh host <cmd>` non-interactive: PATH = `~/.local/bin` only (HM bashrc
+  interactivity guard); login shells + tmux panes + `connect` are fine.
+- SELinux-enforcing hosts may need a nix daemon policy tweak.
+- The nix closure needs ~1–2 GB disk on the remote.
