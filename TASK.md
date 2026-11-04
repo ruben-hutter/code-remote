@@ -19,16 +19,18 @@ passes. Fixes go into the real repos, not workarounds on the VM.
 
 ## Context to read first
 
-- `README.md` — v2 architecture, known limits
+- `README.md` — architecture (self-contained: own flake + vendored configs),
+  known limits
 - `TESTING.md` — the runbook = definition of done
 - `remote/bootstrap.sh` (v2) / `remote/bootstrap-legacy.sh` (v1 escape hatch)
-- `code-remote.conf` — `NIXOS_CONFIG_DIR` points at `~/repos/nixos-config/master`
-- `~/repos/nixos-config/master/flake.nix` + `home/remote-default.nix` — the
-  declarative remote env (homeConfigurations.remote / remote-aarch64)
+- `flake.nix` + `home/remote-default.nix` — the declarative remote env
+  (homeConfigurations.remote / remote-aarch64); flake inputs: nixpkgs, HM,
+  scripts, skills (all locked)
+- `bin/vendor` — mirrors desktop-owned configs from ~/repos/nixos-config
 
 Local machine: Fedora, has nix 2.32.4 + pass. Pre-validate config changes
-locally with `nix build ~/repos/nixos-config/master#homeConfigurations.remote.activationPackage --no-link`
-(build only — NEVER activate on the local machine).
+locally with `nix build .#homeConfigurations.remote.activationPackage --no-link`
+from this repo (build only — NEVER activate on the local machine).
 
 ## Plan
 
