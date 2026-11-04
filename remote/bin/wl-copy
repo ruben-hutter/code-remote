@@ -1,0 +1,10 @@
+#!/bin/sh
+# code-remote: OSC52 clipboard shim for headless hosts.
+# tmux-yank pipes selections here when no real clipboard tool exists;
+# `tmux load-buffer -w` stores the buffer and sends it to the attached
+# terminal's clipboard via OSC52 (tmux >= 3.3).
+# If a real wl-copy shows up on the system later, defer to it.
+for d in /usr/bin /usr/local/bin /bin; do
+    [ -x "$d/wl-copy" ] && exec "$d/wl-copy" "$@"
+done
+exec tmux load-buffer -w -

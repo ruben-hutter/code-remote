@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# code-remote — provision and use a userspace dev environment on a remote host
+# over plain ssh. Local side: rsyncs configs up, runs remote/bootstrap.sh.
+#
+# usage:
+#   code-remote <ssh-alias>                  connect (default command)
+#   code-remote <ssh-alias> bootstrap        full setup: tools + configs + plugins
+#   code-remote <ssh-alias> sync             re-push configs, re-apply transforms
+#   code-remote <ssh-alias> connect [args]   ssh + tmux session manager (or attach)
+#   extra args after the command are passed through to ssh
+#   legacy order (code-remote <command> <ssh-alias>) still accepted
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=code-remote.conf
+source "$DIR/code-remote.conf"
+
+usage() {
+  cat >&2 <<'EOF'
+usage: code-remote <ssh-alias>                 connect (default command)
+       code-remote <ssh-alias> bootstrap       full setup: tools + configs + plugins
+       code-remote <ssh-alias> sync            re-push configs, re-apply transforms
+       code-remote <ssh-alias> connect [args]  ssh + tmux session picker (or attach)
+
+  extra args after the command are forwarded to ssh (e.g. port forwards).
+  legacy order still accepted: code-remote <bootstrap|sync|connect> <ssh-alias>
+EOF
+  exit 1
+}
+
+is_cmd() { case " bootstrap sync connect " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+[ $# -ge 1 ] || usage
+CMD="connect"
+if is_cmd "$1" && [ $# -ge 2 ]; then
+  CMD="$1"; HOST="$2"; shift 2
+else
+  HOST="$1"; shift
+  if [ $# -ge 1 ]; then CMD="$1"; shift; fi
+fi
+is_cmd "$CMD" || { echo "unknown command: $CMD" >&2; usage; }
+EXTRA=()
+[ $# -gt 0 ] && EXTRA=("$@")
+# every ssh call goes through rc() so extra args (e.g. -L forwards) apply everywhere
+rc() { ssh ${EXTRA[@]+"${EXTRA[@]}"} "$@"; }
+
+info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+# nvim: Lazy! sync can drift from lazy-lock.json when upstream force-pushes
+# (pinned commits unreachable from a fresh clone). Re-push the local lock and
+# restore the exact pins.
+pin_nvim_lock() {
+  [ -f "$NVIM_CONFIG_DIR/lazy-lock.json" ] || return 0
+  rsync -az "$NVIM_CONFIG_DIR/lazy-lock.json" "$HOST:.config/nvim/lazy-lock.json"
+  rc "$HOST" 'export PATH="$HOME/.local/bin:$PATH"; command -v nvim >/dev/null 2>&1 && nvim --headless "+Lazy! restore" "+qa" >/dev/null 2>&1 || true'
+  info "nvim plugins pinned to lazy-lock.json"
+}
+
+# pi keys: auth.json stores them as "!command" values (they call `pass` locally,
+# which does not exist on remotes). Resolve those commands HERE and write the
+# literal keys into the remote auth.json, preserving credentials that exist
+# only on the remote (e.g. OAuth logins done there).
+sync_pi_keys() {
+  local r="$HOST" p cmd key tmp tmpm providers
+  [ -f "$HOME/.pi/agent/auth.json" ] || return 0
+  rc "$r" 'test -f ~/.pi/agent/auth.json' 2>/dev/null || return 0
+  providers="$(jq -r 'to_entries[] | select(.value.type == "api_key" and (.value.key | startswith("!"))) | .key' \
+    "$HOME/.pi/agent/auth.json" 2>/dev/null)" || return 0
+  [ -n "$providers" ] || return 0
+  tmp="$(mktemp)"
+  rc "$r" 'cat ~/.pi/agent/auth.json' > "$tmp"
+  while IFS= read -r p; do
+    cmd="$(jq -r --arg p "$p" '.[$p].key[1:]' "$HOME/.pi/agent/auth.json")"
+    key="$(bash -c "$cmd" 2>/dev/null | head -n 1 | tr -d '\r')"
+    if [ -z "$key" ]; then
+      info "pi keys: could not resolve $p — left as-is"
+      continue
+    fi
+    tmpm="$tmp.m"
+    jq --arg p "$p" --arg k "$key" '.[$p].type = "api_key" | .[$p].key = $k' "$tmp" > "$tmpm" && mv "$tmpm" "$tmp"
+    info "pi keys: $p resolved from pass"
+  done <<< "$providers"
+  chmod 600 "$tmp"
+  rsync -az "$tmp" "$r:.pi/agent/auth.json"
+  rm -f "$tmp"
+}
+
+push_configs() {
+  local r="$HOST"
+
+  rc "$r" 'mkdir -p ~/.config/tmux/plugins ~/.pi/agent ~/.config ~/.agents ~/scripts'
+
+  info "rsyncing configs to $r"
+  rsync -az --delete "$NVIM_CONFIG_DIR/" "$r:.config/nvim/"
+  rsync -az "$HOME/.tmux.conf" "$r:.tmux.conf"
+  rsync -az --delete "$HOME/.config/tmux/plugins/" "$r:.config/tmux/plugins/"
+
+  # bash: interactive shell config + aliases (.bashrc-personal is sourced by
+  # .bashrc). bootstrap.sh strips local-only bits and adds managed blocks on top.
+  if [ -f "$HOME/.bashrc" ]; then
+    rsync -az "$HOME/.bashrc" "$r:.bashrc"
+  fi
+  if [ -f "$HOME/.bashrc-personal" ]; then
+    rsync -az "$HOME/.bashrc-personal" "$r:.bashrc-personal"
+  fi
+
+  if [ -f "$HOME/.config/starship.toml" ]; then
+    rsync -az "$HOME/.config/starship.toml" "$r:.config/"
+  fi
+
+  # pi: config-level files only; sessions/, install/, npm/, bin/ never leave here
+  local f
+  for f in "${PI_FILES[@]}"; do
+    if [ -e "$HOME/.pi/agent/$f" ]; then
+      rsync -az "$HOME/.pi/agent/$f" "$r:.pi/agent/"
+    fi
+  done
+  rsync -az --delete "${PI_EXCLUDES[@]}" \
+    "$HOME/.pi/agent/extensions/" "$r:.pi/agent/extensions/"
+  rsync -az --delete "$HOME/.pi/agent/agents/" "$r:.pi/agent/agents/"
+
+  # helper scripts the remote actually uses (tmux session picker, wtree)
+  local s
+  for s in "${REMOTE_SCRIPTS[@]}"; do
+    if [ -e "$SCRIPTS_DIR/$s" ]; then
+      rsync -az "$SCRIPTS_DIR/$s" "$r:scripts/"
+    fi
+  done
+
+  # skills: local symlink farm -> dereferenced real files on the remote
+  if [ -d "$SKILLS_DIR" ]; then
+    rsync -azL --delete "$SKILLS_DIR/" "$r:.agents/skills/"
+  fi
+
+  # env vars for providers that read the environment (PASS_ENVARS), resolved
+  # from pass LOCALLY and written as a plain env file sourced by .bashrc
+  if [ "${#PASS_ENVARS[@]}" -gt 0 ]; then
+    local line var entry val envtmp
+    envtmp="$(mktemp)"
+    {
+      echo "# generated by code-remote — do not edit; resolved from pass at sync time"
+      for line in "${PASS_ENVARS[@]}"; do
+        var="${line%%:*}"; entry="${line#*:}"
+        val="$(pass show "$entry" 2>/dev/null | head -n 1 | tr -d '\r')"
+        if [ -n "$val" ]; then
+          printf "export %s='%s'\n" "$var" "$(printf '%s' "$val" | sed "s/'/'\\\\''/g")"
+        else
+          info "passenv: pass show $entry failed — $var not set"
+        fi
+      done
+    } > "$envtmp"
+    rc "$r" 'mkdir -p ~/.config/code-remote'
+    rsync -az "$envtmp" "$r:.config/code-remote/passenv"
+    rm -f "$envtmp"
+  fi
+
+  sync_pi_keys
+  # credentials: a remote keeps its own auth.json; push only into emptiness
+  if [ -f "$HOME/.pi/agent/auth.json" ]; then
+    if rc "$r" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
+      info "auth.json: remote keeps its own credentials"
+    elif [ "$SYNC_PI_AUTH" = "1" ]; then
+      rsync -az "$HOME/.pi/agent/auth.json" "$r:.pi/agent/"
+      info "auth.json pushed (remote had none)"
+    fi
+  fi
+}
+
+case "$CMD" in
+  bootstrap)
+    push_configs
+    info "uploading bootstrap script"
+    rc "$HOST" 'mkdir -p ~/.code-remote'
+    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
+    info "running bootstrap on $HOST (tools + configs)"
+    rc -t "$HOST" 'bash ~/.code-remote/bootstrap.sh all'
+    pin_nvim_lock
+    info "done — connect with: code-remote connect $HOST"
+    ;;
+  sync)
+    push_configs
+    info "re-applying remote config transforms"
+    # always refresh the installer itself so remote edits propagate
+    rc "$HOST" 'mkdir -p ~/.code-remote'
+    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
+    rc "$HOST" 'bash ~/.code-remote/bootstrap.sh configs'
+    pin_nvim_lock
+    info "done"
+    ;;
+  connect)
+    # PATH set explicitly: the ssh command runs a non-interactive shell whose
+    # .bashrc may bail out before any PATH line (distro interactivity guard),
+    # and ~/.local/bin (fzf, nvim, …) must be visible regardless
+    if rc "$HOST" 'test -x ~/scripts/tmux_session_manager.sh' 2>/dev/null; then
+      rc -t "$HOST" 'export PATH="$HOME/.local/bin:$HOME/scripts:$PATH"; exec ~/scripts/tmux_session_manager.sh'
+      exit $?
+    fi
+    rc -t "$HOST" 'export PATH="$HOME/.local/bin:$HOME/scripts:$PATH"; tmux new-session -A -s '"$TMUX_SESSION"
+    ;;
+  *)
+    usage
+    ;;
+esac
