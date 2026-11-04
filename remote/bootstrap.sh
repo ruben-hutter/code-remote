@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# code-remote bootstrap v2 — home-manager + nix provisioner.
-# Runs ON THE REMOTE host. Idempotent: safe to re-run at any time.
+# code-remote bootstrap — home-manager + nix provisioner for coding VMs.
+# Runs ON THE REMOTE host, from the cloned repo (~/code-remote). Idempotent:
+# safe to re-run at any time.
 #
-# The declarative part lives in ~/nixos-config (rsynced here by
-# bin/code-remote from your machine): homeConfigurations.remote is a headless,
-# bash-first home-manager profile (nvim + vendored config, tmux with OSC52
-# yank, starship, fzf, direnv + flakes, git, bat/lazygit/btop/htop/lf,
-# ~/scripts, direnv-managed dev shells). This script is the thin imperative
-# residue nix cannot express:
+# Everything declarative lives in THIS repo: flake.nix + home/ define a
+# headless, bash-first home-manager profile (nvim with vendored config,
+# tmux with OSC52 yank, starship, fzf, direnv + flakes, lean tool set).
+# ~/scripts and ~/.agents/skills come from flake inputs (public, locked).
+# This script is the thin imperative residue nix cannot express:
 #
 #   1. ensure base tools (git, curl, tar, unzip)
 #   2. install nix (official installer — sudo; multi-user daemon, or
@@ -56,42 +56,18 @@ esac
 
 fetch() { curl -fsSL -o "$2" "$1" || die "download failed: $1"; }
 
-# --- repos (cloned/updated ON the host — public https, no keys needed) -------
-NIXOS_CONFIG_REPO="https://github.com/ruben-hutter/nixos-config"
-NIXOS_CONFIG_REF="master"
-SKILLS_REPO="https://github.com/ruben-hutter/skills"
-
-fetch_repo() { # <url> <dir>  clone-or-update: consumer clones advance hard to origin
-  local url="$1" dir="$2"
-  if [ -d "$dir/.git" ]; then
-    git -C "$dir" fetch -q origin \
-      && git -C "$dir" reset --hard -q "@{upstream}" \
-      || { warn "git update failed for $dir — continuing with local state"; return 0; }
-    ok "$(basename "$url") updated ($(git -C "$dir" rev-parse --short HEAD))"
-  else
-    # legacy remotes may have an rsynced plain dir here — set it aside
-    if [ -e "$dir" ]; then
-      mv "$dir" "$dir.pre-home-manager"
-      info "moved aside: $dir → $(basename "$dir").pre-home-manager"
-    fi
-    git clone -q "$url" "$dir" || die "git clone failed: $url"
-    ok "$(basename "$url") cloned"
-  fi
-}
-
-ensure_nixos_config() {
-  # The declarative remote env (homeConfigurations.remote). After update, write
-  # the per-host identity; git add is REQUIRED — a flake in a git tree is
-  # sourced from the index, so an untracked file would be invisible to nix.
-  local dir="$HOME/nixos-config"
-  fetch_repo "$NIXOS_CONFIG_REPO" "$dir"
+# --- per-host identity for the HM profile ------------------------------------
+# This script runs from the cloned repo (<clone>/remote), so the flake root is
+# one level up. The identity file must be STAGED (git add): a flake in a git
+# tree is sourced from the git index — an untracked file is invisible to nix.
+REPO_ROOT=""
+stage_remote_user() {
+  REPO_ROOT="$(cd "$SRCDIR/.." && pwd)"
+  [ -d "$REPO_ROOT/.git" ] || die "bootstrap must run from a code-remote git clone (got: $REPO_ROOT)"
   printf '{ name = "%s"; home = "%s"; }\n' "$(id -un)" "$HOME" \
-    > "$dir/home/remote-user.nix"
-  git -C "$dir" add -f home/remote-user.nix
-}
-
-ensure_skills() {
-  fetch_repo "$SKILLS_REPO" "$HOME/.agents/skills"
+    > "$REPO_ROOT/home/remote-user.nix"
+  git -C "$REPO_ROOT" add -f home/remote-user.nix
+  ok "host identity staged ($(id -un) @ $HOME)"
 }
 
 # --- base prerequisites (the sudo-ish part) ----------------------------------
@@ -182,7 +158,8 @@ adopt_or_setaside() { # <path>
 migrate_to_hm() {
   local f
   for f in .bashrc .bash_profile .profile .tmux.conf \
-    .config/nvim .config/starship.toml .config/nix/nix.conf; do
+    .config/nvim .config/starship.toml .config/nix/nix.conf \
+    .nixos-config .agents/skills; do
     adopt_or_setaside "$HOME/$f"
   done
   # v1 leftovers: tpm + cloned plugins are unused now (plugins come from
@@ -198,8 +175,7 @@ migrate_to_hm() {
 
 # --- home-manager -------------------------------------------------------------
 hm_switch() {
-  local nixcfg="$HOME/nixos-config"
-  [ -d "$nixcfg" ] || die "~/nixos-config not found — bin/code-remote syncs it before bootstrap"
+  [ -n "$REPO_ROOT" ] || stage_remote_user
   # flakes must be on for the build itself; via env, NOT nix.conf — home-manager
   # owns ~/.config/nix/nix.conf after activation and aborts on conflicts
   export NIX_CONFIG="experimental-features = nix-command flakes"
@@ -209,7 +185,7 @@ hm_switch() {
   info "building home-manager generation ($cfg) — mostly cache.nixos.org downloads"
   local out gen
   # stdout (out-paths) captured; build progress/errors stream to the terminal
-  out="$(nix build "$nixcfg#homeConfigurations.$cfg.activationPackage" \
+  out="$(nix build "$REPO_ROOT#homeConfigurations.$cfg.activationPackage" \
     --no-link --print-out-paths)" || die "home-manager build failed (see error above)"
   gen="$(printf '%s\n' "$out" | tail -1)"
   info "activating generation"
@@ -269,8 +245,7 @@ case "$MODE" in
   hm)
     ensure_base
     install_nix
-    ensure_nixos_config
-    ensure_skills
+    stage_remote_user
     migrate_to_hm
     hm_switch
     ;;
@@ -283,8 +258,7 @@ case "$MODE" in
   all)
     ensure_base
     install_nix
-    ensure_nixos_config
-    ensure_skills
+    stage_remote_user
     migrate_to_hm
     hm_switch
     install_pi

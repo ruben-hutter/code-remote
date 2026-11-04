@@ -1,0 +1,83 @@
+{
+  "nodes": {
+    "home-manager": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793757180,
+        "narHash": "sha256-gyV7AtCwLnOImcrfSETP4J3Ie96bz19DY47B7m7Y3HM=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "b787c48e2ec57a9d098f5c2721882a3bc1e16f97",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "ref": "master",
+        "repo": "home-manager",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1793726008,
+        "narHash": "sha256-jQp1wKvbwWdLBASTXkSi/VYmDJ5AbBi1WvcMt9HWJC8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "1d060086d60cb76a40cf37109f979d88a5bd6396",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "home-manager": "home-manager",
+        "nixpkgs": "nixpkgs",
+        "scripts": "scripts",
+        "skills": "skills"
+      }
+    },
+    "scripts": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793395839,
+        "narHash": "sha256-WGJCSQ/Zc46zOwam/YBG4mk3PAWw5H1Wgz6Iho8mFJ4=",
+        "owner": "ruben-hutter",
+        "repo": "scripts",
+        "rev": "e332e294987f0bea83d4d2649e8122065477673a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ruben-hutter",
+        "repo": "scripts",
+        "type": "github"
+      }
+    },
+    "skills": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793395839,
+        "narHash": "sha256-kqB2Piyo+RKU72ptCZw0voPSpU7efAyqqNY7Ou6WCwo=",
+        "owner": "ruben-hutter",
+        "repo": "skills",
+        "rev": "d048364c13476ca198e3d9957fa3195548283e9b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ruben-hutter",
+        "repo": "skills",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

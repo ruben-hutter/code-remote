@@ -2,13 +2,17 @@
 
 Provision a **userspace** dev environment on a remote host over plain ssh —
 powered by **nix + home-manager**, no dotfiles maintained on the remote, no
-GitHub keys on the remote. **Remote-driven**: the host clones the repos itself
-and runs the bootstrap there; your machine only ever sends credentials.
+GitHub keys on the remote. **Remote-driven and self-contained**: the host
+clones exactly **one** repo (this one) and runs the bootstrap there; your
+machine only ever sends credentials.
 
-All remote tooling and shell config is declared in `homeConfigurations.remote`
-in the public [`nixos-config`](https://github.com/ruben-hutter/nixos-config)
-flake; this repo carries the bootstrap script and the thin imperative residue
-(nix install, pi, OSC shims).
+Everything declarative lives in this repo's `flake.nix` + `home/`: a headless,
+bash-first home-manager profile. Desktop-shared configs (nvim, starship.toml,
+lf/btop/htop) are **vendored** into `home/` from the
+[`nixos-config`](https://github.com/ruben-hutter/nixos-config) desktop repo via
+`bin/vendor`; scripts and agent skills come from **flake inputs** (public,
+pinned by `flake.lock`, fetched read-only into the nix store — no clones, no
+submodules).
 
 ```
 usage: bin/code-remote <ssh-alias>                 connect (default command)
@@ -36,15 +40,14 @@ That's it. `./bootstrap` (= `remote/bootstrap.sh`):
 
 1. checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
 2. installs **nix** (official installer; sudo needed once for `/nix`)
-3. clones **`nixos-config`** (public) to `~/nixos-config` — or `git pull`s it —
-   and writes your username into `home/remote-user.nix` (staged, so the flake
-   sees it)
-4. clones **`skills`** (public) to `~/.agents/skills`
-5. moves pre-home-manager files aside (`*.pre-home-manager`) so HM can own
+3. stages your username into `home/remote-user.nix` (per-host identity; staged
+   because a flake in a git tree is sourced from the git index)
+4. moves pre-home-manager files aside (`*.pre-home-manager`) so HM can own
    `~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim`, …
-6. builds + activates the home-manager generation (`~/.nix-profile`, XDG
-   configs, store-symlinked nvim/tmux/starship)
-7. installs **pi** (official install.sh → `~/.local`), reconciles declared pi
+5. builds + activates the home-manager generation (`~/.nix-profile`, XDG
+   configs, store-symlinked nvim/tmux/starship; `~/scripts` + `~/.agents/skills`
+   come from the locked `scripts`/`skills` flake inputs)
+6. installs **pi** (official install.sh → `~/.local`), reconciles declared pi
    packages, installs OSC52/OSC9 shims on headless hosts, fetches nvim plugins
    (pinned by the vendored `lazy-lock.json`)
 
@@ -54,18 +57,21 @@ credentials that can never come from a repo (pi keys resolved from local
 (connect) or plain `ssh myserver` → tmux, nvim ready.
 
 Updates: `git pull` in `~/code-remote` (or re-run the local `bootstrap`
-one-liner) and re-run `./bootstrap` — `~/nixos-config` and `~/.agents/skills`
-are fast-forwarded to origin automatically, nix skips unchanged deps, HM only
+one-liner) and re-run `./bootstrap` — nix skips unchanged deps, HM only
 rewrites what moved.
 
 ## Architecture
 
 ```
-local machine                     remote host (git clones, public https, no keys)
+local machine                     remote host (one git clone: this repo)
 ─────────────                     ───────────
-github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote  (bootstrap script)
-github:ruben-hutter/nixos-config◀─ git clone → ~/nixos-config (flake; the declarative env)
-github:ruben-hutter/skills      ◀─ git clone → ~/.agents/skills
+github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote (flake + bootstrap + vendored configs)
+
+   its flake inputs (public, pinned by flake.lock, fetched into the nix store —
+   no clones, no submodules):
+   ├─ github:NixOS/nixpkgs + home-manager          → the HM generation
+   ├─ github:ruben-hutter/scripts → ~/scripts      (cht.sh, session manager, wtree)
+   └─ github:ruben-hutter/skills  → ~/.agents/skills (store symlink)
 
 sync (from your machine, credentials only):
 ~/.pi/agent config + keys     ───▶ ~/.pi/agent          (keys resolved from pass LOCALLY)
@@ -75,17 +81,18 @@ sync (from your machine, credentials only):
 then ON the host, bootstrap.sh:
 │
 ├─ nix (official installer, sudo for /nix)
-├─ nix build ~/nixos-config#homeConfigurations.remote...
+├─ nix build ~/code-remote#homeConfigurations.remote...
 ├─ generation activate  → ~/.nix-profile + home files
 ├─ pi (pi.dev install.sh → ~/.local)
 ├─ OSC52/OSC9 shims → ~/.local/bin (headless)
 └─ nvim "+Lazy! sync" (pins from vendored lazy-lock)
 ```
 
-The host writes `~/nixos-config/home/remote-user.nix` (its own username/home)
+The host writes `~/code-remote/home/remote-user.nix` (its own username/home)
 before activation and stages it — a flake in a git tree is sourced from the
-git index, so an untracked file would be invisible to nix. See
-`home/remote-default.nix` in the nixos-config repo.
+git index, so an untracked file would be invisible to nix. Vendored configs
+(`home/nvim/`, `home/assets/`) are mirrored from the nixos-config desktop repo
+by `bin/vendor` — the desktop checkout stays the canonical place to edit them.
 
 ## What the remote gets (declarative, from the flake)
 
@@ -94,16 +101,16 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 
 | Area | What |
 |---|---|
-| nvim | your full config, vendored in `~/repos/nixos-config/home/programs/nvim/`, store-symlinked; plugins pinned by the vendored `lazy-lock.json` |
+| nvim | your full config, vendored in this repo (`home/nvim/`), store-symlinked; plugins pinned by the vendored `lazy-lock.json` |
 | tmux | bash panes, C-a prefix, vi mode, catppuccin, yank (OSC52 on headless), resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
 | shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` + `passenv` sourced |
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
-| tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, bat, btop, htop, lf, wget/curl/tree/unzip/zip, `~/scripts` (pinned `github:ruben-hutter/scripts`) |
+| tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, bat, btop, htop, lf, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
 
-All versions come from the nixos-config `flake.lock` — bump with
-`nix flake update` there, commit the lock, then re-run `./bootstrap` on the
-host (or the local `bootstrap` one-liner).
+All versions come from this repo's `flake.lock` — bump with `nix flake update`
+here, commit the lock, then re-run `./bootstrap` on the host (or the local
+`bootstrap` one-liner).
 
 ## What gets synced (imperative data, from `code-remote.conf`)
 
@@ -164,11 +171,11 @@ hatch: `bootstrap-legacy` restores the v1 flow (old script kept as
   regression (v1 put a PATH block above the guard).
 - Disk: the nix closure is ~1–2 GB (vs ~200 MB for v1's static binaries) —
   fine for normal VMs, tight below ~5 GB disks.
-- **nvim plugin updates** on remotes: bump the vendored `lazy-lock.json` in
-  `~/repos/nixos-config` (`:Lazy update` locally, copy the lock over,
-  commit, push), then re-run `./bootstrap` on the host (or the local
-  `bootstrap` one-liner). `:Lazy update` inside the remote nvim cannot persist
-  (store config is read-only by design).
+- **nvim plugin updates** on remotes: update locally (`:Lazy update`), copy
+  the lock into the nixos-config desktop repo (commit), then in THIS repo run
+  `bin/vendor` (mirrors nvim + assets), commit + push, and re-run `./bootstrap`
+  on the host. `:Lazy update` inside the remote nvim cannot persist (store
+  config is read-only by design).
 - First `nvim` launch / bootstrap may still fetch a few Mason LSP servers
   lazily (nodejs/gcc from the HM profile cover their build needs).
 - **Clipboard**: tmux copy-mode `y` reaches your local clipboard on headless
