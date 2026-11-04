@@ -36,10 +36,12 @@ locally with `nix build ~/repos/nixos-config/master#homeConfigurations.remote.ac
    note arch (picks homeConfigurations.remote vs remote-aarch64), whether user
    is root (no `sudo` binary → `install_nix` needs a fix: run installer directly
    as root — likely bug #0 if the image is root-only).
-2. **v1 first (migration setup)**: `bin/code-remote <alias> bootstrap-legacy`
-   — validates the old flow still works and leaves a realistic v1 state
-   (pinned binaries in `~/.local/bin`, tpm clones, managed bashrc blocks).
-   Verify: tools in `~/.local/bin`, tmux works, `grep direnv ~/.bashrc`.
+2. **(OPTIONAL — skip for a plain v2 test)** Only needed to exercise the
+   migration code that existing v1 remotes will hit. Run
+   `bin/code-remote <alias> bootstrap-legacy` to manufacture a realistic v1
+   state (pinned binaries in `~/.local/bin`, tpm clones, managed bashrc
+   blocks), verify it works (`grep direnv ~/.bashrc`, tmux runs), then
+   proceed. On a fresh VM you can ignore this entirely.
 3. **v2 bootstrap (the real test)**: `bin/code-remote <alias> bootstrap` —
    expect ~10 min (nix installer + closure downloads). Watch for: sudo
    prompts, nix install failure, HM activation aborts (conflicting files not
@@ -49,8 +51,9 @@ locally with `nix build ~/repos/nixos-config/master#homeConfigurations.remote.ac
    pi, nix dev shells. For the dev-shell test make a tiny flake on the VM
    (`~/devshell-test` with `pkgs.mkShell { packages = [ pkgs.hello ]; }`) +
    `.envrc` `use flake` + `direnv allow`, confirm `command -v hello`.
-5. **Migration artifacts**: `ls *.pre-home-manager` in `$HOME`, tpm gone,
-   `~/.local/bin` reduced to pi + shims, `~/.nix-profile/bin` authoritative.
+5. **Migration artifacts** (only if step 2 ran): `ls *.pre-home-manager` in
+   `$HOME`, tpm gone, `~/.local/bin` reduced to pi + shims,
+   `~/.nix-profile/bin` authoritative.
 6. **Idempotency**: `bin/code-remote <alias> sync` twice — second run must be
    quick and change nothing; `bin/code-remote <alias> connect` must land in
    tmux with session picker.
@@ -59,6 +62,8 @@ locally with `nix build ~/repos/nixos-config/master#homeConfigurations.remote.ac
 
 ## Where bugs are likely (check here first)
 
+- **Test order**: a fresh VM can go straight to v2 bootstrap; legacy is only
+  run to simulate an existing v1 remote before migrating it.
 - `install_nix` as root-only image (no `sudo` binary) — fix: root runs the
   installer directly.
 - HM activation abort on files the migration list misses (check the full
