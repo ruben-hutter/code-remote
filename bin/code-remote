@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # code-remote — provision and use a userspace dev environment on a remote host
-# over plain ssh. Local side: rsyncs configs + the nixos-config flake up, runs
-# remote/bootstrap.sh (home-manager based).
+# over plain ssh. The bootstrap is REMOTE-DRIVEN: the host clones this repo
+# (public GitHub, no keys) and runs remote/bootstrap.sh, which also clones
+# ~/repos/nixos-config + skills and activates the home-manager generation.
+# This local wrapper is the one-liner version of that, plus `sync` for the
+# data/credentials only your machine can provide (pass), plus `connect`.
 #
 # usage:
 #   code-remote <ssh-alias>                  connect (default command)
@@ -20,13 +23,16 @@ source "$DIR/code-remote.conf"
 usage() {
   cat >&2 <<'EOF'
 usage: code-remote <ssh-alias>                 connect (default command)
-       code-remote <ssh-alias> bootstrap       full setup: nix + home-manager + pi
-       code-remote <ssh-alias> sync            re-push configs, re-run home-manager
+       code-remote <ssh-alias> bootstrap       clone/pull repo on host + full setup (nix, home-manager, pi)
+       code-remote <ssh-alias> sync            push data + credentials (pi keys, passenv, aliases)
        code-remote <ssh-alias> connect [args]  ssh + tmux session picker (or attach)
        code-remote <ssh-alias> bootstrap-legacy  v1 bash bootstrap (pre-home-manager)
 
-  extra args after the command are forwarded to ssh (e.g. port forwards).
-  legacy order still accepted: code-remote <bootstrap|sync|connect> <ssh-alias>
+  bootstrap is remote-driven: the host clones https://github.com/ruben-hutter/code-remote
+  and runs it; this command is the one-liner version. Run 'sync' once after
+  bootstrap — credentials (pi keys, passenv) can only come from this machine.
+  Extra args after the command are forwarded to ssh (e.g. port forwards).
+  Legacy order still accepted: code-remote <bootstrap|sync|connect> <ssh-alias>
 EOF
   exit 1
 }
@@ -91,8 +97,11 @@ sync_pi_keys() {
 }
 
 push_data_configs() {
-  # Everything home-manager does NOT own: user data synced from this machine.
-  local r="$HOST" f s
+  # Everything the remote git clones do NOT carry: user data + credentials
+  # synced from this machine. (Code itself — bootstrap repo, nixos-config,
+  # skills — lives in public GitHub clones on the host, updated by the
+  # bootstrap script; secrets can never come from a repo, only from here.)
+  local r="$HOST" f
 
   # personal aliases — plain data, sourced by the HM-generated .bashrc
   if [ -f "$HOME/.bashrc-personal" ]; then
@@ -108,11 +117,6 @@ push_data_configs() {
   rsync -az --delete "${PI_EXCLUDES[@]}" \
     "$HOME/.pi/agent/extensions/" "$r:.pi/agent/extensions/"
   rsync -az --delete "$HOME/.pi/agent/agents/" "$r:.pi/agent/agents/"
-
-  # skills: local symlink farm -> dereferenced real files on the remote
-  if [ -d "$SKILLS_DIR" ]; then
-    rsync -azL --delete "$SKILLS_DIR/" "$r:.agents/skills/"
-  fi
 
   # env vars for providers that read the environment (PASS_ENVARS), resolved
   # from pass LOCALLY and written as a plain env file sourced by .bashrc
@@ -148,21 +152,6 @@ push_data_configs() {
   fi
 }
 
-push_nixos_config() {
-  # The declarative remote config: ~/repos/nixos-config/master → ~/nixos-config
-  # on the remote. home/remote-user.nix is written ON the remote (per-host
-  # username) and therefore excluded here. ~/.local/bin nvim/pin tricks are
-  # gone — the vendored nvim config + lazy-lock.json in this repo pin plugins.
-  local r="$HOST"
-  [ -d "$NIXOS_CONFIG_DIR" ] || { echo "NIXOS_CONFIG_DIR not found: $NIXOS_CONFIG_DIR" >&2; exit 1; }
-  info "rsyncing nixos-config to $r"
-  rsync -az --delete \
-    --exclude=.git --exclude=.bare --exclude='result*' \
-    --exclude=home/remote-user.nix \
-    "$NIXOS_CONFIG_DIR/" "$r:nixos-config/"
-  rc "$r" 'printf "{ name = \"$(id -un)\"; home = \"$HOME\"; }\n" > ~/nixos-config/home/remote-user.nix'
-}
-
 push_configs() {
   # LEGACY (v1 bash bootstrap): pushes raw configs the old script transforms
   # on the remote. The home-manager flow uses push_data_configs instead —
@@ -186,6 +175,12 @@ push_configs() {
     rsync -az "$HOME/.config/starship.toml" "$r:.config/"
   fi
 
+  # skills: local symlink farm -> dereferenced real files (legacy only —
+  # the v2 flow clones the public skills repo on the host instead)
+  if [ -d "$SKILLS_DIR" ]; then
+    rsync -azL --delete "$SKILLS_DIR/" "$r:.agents/skills/"
+  fi
+
   # helper scripts the remote actually uses (tmux session picker, wtree) —
   # legacy only: the HM profile installs ~/scripts from the scripts flake input
   local s
@@ -200,26 +195,23 @@ push_configs() {
 
 case "$CMD" in
   bootstrap)
-    # v2: home-manager flow — push data configs + the nixos-config flake;
-    # bashrc/tmux/nvim/starship/scripts are owned by the HM generation there
-    push_data_configs
-    push_nixos_config
-    info "uploading bootstrap script"
-    rc "$HOST" 'mkdir -p ~/.code-remote'
-    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
-    info "running bootstrap on $HOST (nix + home-manager + pi)"
-    rc -t "$HOST" 'bash ~/.code-remote/bootstrap.sh all'
-    info "done — connect with: code-remote connect $HOST"
+    # Remote-driven bootstrap: the host clones/pulls this repo and runs the
+    # script itself (which also clones nixos-config + skills). This local
+    # command is just the one-liner version of the manual ssh+clone+./bootstrap.
+    if ! rc "$HOST" 'test -d ~/code-remote/.git' 2>/dev/null; then
+      info "cloning code-remote on $HOST"
+      rc "$HOST" "git clone -q '$CODE_REMOTE_REPO' ~/code-remote" \
+        || { echo "clone failed — is $CODE_REMOTE_REPO reachable from the host?" >&2; exit 1; }
+    fi
+    info "updating + running bootstrap on $HOST (nix + home-manager + pi)"
+    rc -t "$HOST" 'cd ~/code-remote && git pull --ff-only -q && bash remote/bootstrap.sh all'
+    info "done — run 'bin/code-remote $HOST sync' once for pi keys/passenv, then connect"
     ;;
   sync)
-    # re-push data + flake, re-activate the HM generation (idempotent: nix
-    # skips unchanged deps, HM only rewrites what moved)
+    # data + credentials only: pi configs/keys, passenv, bashrc-personal.
+    # Code + configs live in git clones ON the host (code-remote, nixos-config,
+    # skills); update them with bin/code-remote <host> bootstrap or manually.
     push_data_configs
-    push_nixos_config
-    info "uploading bootstrap script"
-    rc "$HOST" 'mkdir -p ~/.code-remote'
-    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
-    rc -t "$HOST" 'bash ~/.code-remote/bootstrap.sh hm'
     info "done"
     ;;
   bootstrap-legacy)

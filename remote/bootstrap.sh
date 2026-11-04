@@ -56,6 +56,44 @@ esac
 
 fetch() { curl -fsSL -o "$2" "$1" || die "download failed: $1"; }
 
+# --- repos (cloned/updated ON the host — public https, no keys needed) -------
+NIXOS_CONFIG_REPO="https://github.com/ruben-hutter/nixos-config"
+NIXOS_CONFIG_REF="master"
+SKILLS_REPO="https://github.com/ruben-hutter/skills"
+
+fetch_repo() { # <url> <dir>  clone-or-update: consumer clones advance hard to origin
+  local url="$1" dir="$2"
+  if [ -d "$dir/.git" ]; then
+    git -C "$dir" fetch -q origin \
+      && git -C "$dir" reset --hard -q "@{upstream}" \
+      || { warn "git update failed for $dir — continuing with local state"; return 0; }
+    ok "$(basename "$url") updated ($(git -C "$dir" rev-parse --short HEAD))"
+  else
+    # legacy remotes may have an rsynced plain dir here — set it aside
+    if [ -e "$dir" ]; then
+      mv "$dir" "$dir.pre-home-manager"
+      info "moved aside: $dir → $(basename "$dir").pre-home-manager"
+    fi
+    git clone -q "$url" "$dir" || die "git clone failed: $url"
+    ok "$(basename "$url") cloned"
+  fi
+}
+
+ensure_nixos_config() {
+  # The declarative remote env (homeConfigurations.remote). After update, write
+  # the per-host identity; git add is REQUIRED — a flake in a git tree is
+  # sourced from the index, so an untracked file would be invisible to nix.
+  local dir="$HOME/nixos-config"
+  fetch_repo "$NIXOS_CONFIG_REPO" "$dir"
+  printf '{ name = "%s"; home = "%s"; }\n' "$(id -un)" "$HOME" \
+    > "$dir/home/remote-user.nix"
+  git -C "$dir" add -f home/remote-user.nix
+}
+
+ensure_skills() {
+  fetch_repo "$SKILLS_REPO" "$HOME/.agents/skills"
+}
+
 # --- base prerequisites (the sudo-ish part) ----------------------------------
 wait_pkg_lock() { # fresh Ubuntu boots run apt-daily/unattended-upgrades first
   have apt-get || return 0
@@ -231,6 +269,8 @@ case "$MODE" in
   hm)
     ensure_base
     install_nix
+    ensure_nixos_config
+    ensure_skills
     migrate_to_hm
     hm_switch
     ;;
@@ -243,6 +283,8 @@ case "$MODE" in
   all)
     ensure_base
     install_nix
+    ensure_nixos_config
+    ensure_skills
     migrate_to_hm
     hm_switch
     install_pi

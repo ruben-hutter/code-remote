@@ -35,27 +35,41 @@ bin/code-remote proxcode bootstrap
 
 What happens, in order:
 
-1. **push_data_configs** — rsync from your machine: `~/.bashrc-personal`,
-   pi config files (`settings.json`, `keybindings.json`, `AGENTS.md`,
-   `trust.json`, `models-store.json`), `extensions/` (minus `gondolin/`,
-   `blink1.ts`), `agents/`, `~/.agents/skills/` (dereferenced via `-L`),
-   `~/.config/code-remote/passenv` (from `PASS_ENVARS`, resolved locally via
-   pass), pi keys resolved into remote `auth.json` (`!pass show …` commands
-   executed locally, literal keys written).
+1. **clone on the host** — `git clone https://github.com/ruben-hutter/code-remote
+   ~/code-remote` (or `git pull --ff-only` if it exists; the manual equivalent:
+   ssh in, clone, `cd code-remote && ./bootstrap`)
+2. **run `remote/bootstrap.sh all` on the host**, which:
+   - checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
+   - installs nix (official installer, sudo for `/nix`)
+   - clones/pulls **`github:ruben-hutter/nixos-config`** → `~/nixos-config` and
+     writes + stages `home/remote-user.nix` (the host's own uid/home — staged
+     because a flake in a git tree is sourced from the git index)
+   - clones/pulls **`github:ruben-hutter/skills`** → `~/.agents/skills`
+   - moves pre-HM files aside (`*.pre-home-manager`: old `~/.bashrc`,
+     `~/.tmux.conf`, `~/.config/nvim`, …; also any v1-era rsynced
+     `~/nixos-config` plain dir)
+   - `nix build ~/nixos-config#homeConfigurations.remote.activationPackage`
+     (x86_64; `remote-aarch64` on arm) and activates → `~/.nix-profile`,
+     XDG configs, store-symlinked nvim/tmux/starship
+   - installs pi + `pi update --extensions` (reconciles declared packages)
+   - installs OSC52/OSC9 shims on headless hosts
+   - `nvim --headless "+Lazy! sync"` (pins from the vendored lazy-lock)
+3. **`bin/code-remote proxcode sync`** (once, from your machine) —
+   `~/.bashrc-personal`, pi config files (`settings.json`, `keybindings.json`,
+   `AGENTS.md`, `trust.json`, `models-store.json`), `extensions/` (minus
+   `gondolin/`, `blink1.ts`), `agents/`, `~/.config/code-remote/passenv`
+   (from `PASS_ENVARS`, resolved locally via pass), pi keys resolved into
+   remote `auth.json` (`!pass show …` commands executed locally, literal keys
+   written).
    **Never synced:** `sessions/`, `install/`, `npm/`, `bin/`, your local
    `auth.json` (the remote gets resolved keys via the merge above; it keeps
    its own credentials otherwise, `SYNC_PI_AUTH=1` only seeds an empty one).
-2. **push_nixos_config** — `~/repos/nixos-config/master/` → `~/nixos-config/`
-   (minus `.git`, `result*`, `home/remote-user.nix`), then writes
-   `home/remote-user.nix` on the host (its own uid/home).
-3. Upload `remote/bootstrap.sh` → `~/.code-remote/`
-4. Run it remotely (`all` mode): base check → nix install (sudo, daemon) →
-   pre-HM files moved aside (`*.pre-home-manager`) → `nix build
-   ~/nixos-config#homeConfigurations.remote.activationPackage` → activate →
-   pi + `pi update --extensions` → OSC shims → `nvim --headless "+Lazy! sync"`.
+   **Also never synced (git clones on the host instead):** `~/nixos-config`,
+   `~/.agents/skills`, `~/scripts`, `~/.config/nvim`, `~/.bashrc`,
+   `~/.tmux.conf`, `~/.config/starship.toml`.
 
-It is idempotent — re-run any time; nix is skipped when present and HM
-activation only rewrites what moved.
+It is idempotent — re-run any time; nix is skipped when present, repos are
+fast-forwarded, HM activation only rewrites what moved.
 
 ## 2. Verify each layer by hand
 
@@ -143,10 +157,11 @@ ls ~/.config/tmux/plugins 2>/dev/null                                     # gone
 ## 3. Update paths
 
 ```sh
-bin/code-remote proxcode sync          # re-push data + flake, re-activate HM
-# bump tools: in ~/repos/nixos-config: nix flake update && commit lock, then sync
+bin/code-remote proxcode sync          # data + credentials only (keys rotate, alias changes)
+bin/code-remote proxcode bootstrap     # re-pull code-remote/nixos-config/skills on the host + re-run
+# bump tools: in ~/repos/nixos-config: nix flake update && commit && push, then re-run bootstrap
 # bump nvim plugins: update locally, copy ~/.config/nvim/lazy-lock.json into
-#   ~/repos/nixos-config/home/programs/nvim/, commit, then sync
+#   ~/repos/nixos-config/home/programs/nvim/, commit+push, then re-run bootstrap
 # v1 bash flow (escape hatch): bin/code-remote proxcode bootstrap-legacy
 ```
 

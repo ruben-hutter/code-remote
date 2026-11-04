@@ -1,20 +1,19 @@
 # code-remote
 
 Provision a **userspace** dev environment on a remote host over plain ssh —
-powered by **nix + home-manager** (from [`~/repos/nixos-config`](../nixos-config)),
-no dotfiles maintained on the remote, no GitHub keys on the remote.
+powered by **nix + home-manager**, no dotfiles maintained on the remote, no
+GitHub keys on the remote. **Remote-driven**: the host clones the repos itself
+and runs the bootstrap there; your machine only ever sends credentials.
 
-The remote stays dumb: everything is pushed **from your machine** via rsync and
-installed by one idempotent script. All remote tooling and shell config is
-declared in `homeConfigurations.remote` in the nixos-config flake — code-remote
-just syncs that repo, builds the home-manager generation on the host, and
-activates it. The imperative residue (nix itself, pi, OSC shims) lives in
-`remote/bootstrap.sh`.
+All remote tooling and shell config is declared in `homeConfigurations.remote`
+in the public [`nixos-config`](https://github.com/ruben-hutter/nixos-config)
+flake; this repo carries the bootstrap script and the thin imperative residue
+(nix install, pi, OSC shims).
 
 ```
 usage: bin/code-remote <ssh-alias>                 connect (default command)
-       bin/code-remote <ssh-alias> bootstrap       nix + home-manager + pi (full setup)
-       bin/code-remote <ssh-alias> sync            re-push data, re-run home-manager
+       bin/code-remote <ssh-alias> bootstrap       clone/pull on host + full setup (nix, HM, pi)
+       bin/code-remote <ssh-alias> sync            push data + credentials (pi keys, passenv, aliases)
        bin/code-remote <ssh-alias> connect [args]  ssh + tmux session picker (or attach)
        bin/code-remote <ssh-alias> bootstrap-legacy  v1 bash bootstrap (pre-home-manager)
 
@@ -25,29 +24,68 @@ legacy order (`bin/code-remote <command> <ssh-alias>`) still works.
 `<ssh-alias>` is anything ssh understands — a `user@host` or an alias from
 `~/.ssh/config`.
 
+## The ssh-first flow (no local tooling needed)
+
+```sh
+ssh myserver                                        # first time, manual
+git clone https://github.com/ruben-hutter/code-remote
+cd code-remote && ./bootstrap                       # ~10 min (nix + closure downloads)
+```
+
+That's it. `./bootstrap` (= `remote/bootstrap.sh`):
+
+1. checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
+2. installs **nix** (official installer; sudo needed once for `/nix`)
+3. clones **`nixos-config`** (public) to `~/nixos-config` — or `git pull`s it —
+   and writes your username into `home/remote-user.nix` (staged, so the flake
+   sees it)
+4. clones **`skills`** (public) to `~/.agents/skills`
+5. moves pre-home-manager files aside (`*.pre-home-manager`) so HM can own
+   `~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim`, …
+6. builds + activates the home-manager generation (`~/.nix-profile`, XDG
+   configs, store-symlinked nvim/tmux/starship)
+7. installs **pi** (official install.sh → `~/.local`), reconciles declared pi
+   packages, installs OSC52/OSC9 shims on headless hosts, fetches nvim plugins
+   (pinned by the vendored `lazy-lock.json`)
+
+Then, **from your machine, once**: `bin/code-remote myserver sync` — pushes the
+credentials that can never come from a repo (pi keys resolved from local
+`pass`, `passenv`, personal aliases). Finally `bin/code-remote myserver`
+(connect) or plain `ssh myserver` → tmux, nvim ready.
+
+Updates: `git pull` in `~/code-remote` (or re-run the local `bootstrap`
+one-liner) and re-run `./bootstrap` — `~/nixos-config` and `~/.agents/skills`
+are fast-forwarded to origin automatically, nix skips unchanged deps, HM only
+rewrites what moved.
+
 ## Architecture
 
 ```
-local machine                     remote host
+local machine                     remote host (git clones, public https, no keys)
 ─────────────                     ───────────
-~/repos/nixos-config/master  ───▶ ~/nixos-config        (rsync; flake + vendored configs)
-~/.bashrc-personal            ───▶ ~/.bashrc-personal   (aliases — data, HM sources it)
+github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote  (bootstrap script)
+github:ruben-hutter/nixos-config◀─ git clone → ~/nixos-config (flake; the declarative env)
+github:ruben-hutter/skills      ◀─ git clone → ~/.agents/skills
+
+sync (from your machine, credentials only):
 ~/.pi/agent config + keys     ───▶ ~/.pi/agent          (keys resolved from pass LOCALLY)
-~/.config/code-remote/passenv ───▶ (same)                (PASS_ENVARS → plain env file)
-~/.agents/skills              ───▶ ~/.agents/skills     (dereferenced)
-remote/bootstrap.sh           ───▶ ~/.code-remote       (the imperative part)
-                                      │
-                                      ├─ nix (official installer, sudo for /nix)
-                                      ├─ nix build ~/nixos-config#homeConfigurations.remote...
-                                      ├─ generation activate  → ~/.nix-profile + home files
-                                      ├─ pi (pi.dev install.sh → ~/.local)
-                                      ├─ OSC52/OSC9 shims → ~/.local/bin (headless)
-                                      └─ nvim "+Lazy! sync" (pins from vendored lazy-lock)
+~/.config/code-remote/passenv ───▶ ~/.config/code-remote (PASS_ENVARS → plain env file)
+~/.bashrc-personal            ───▶ ~/.bashrc-personal   (aliases — data, HM sources it)
+
+then ON the host, bootstrap.sh:
+│
+├─ nix (official installer, sudo for /nix)
+├─ nix build ~/nixos-config#homeConfigurations.remote...
+├─ generation activate  → ~/.nix-profile + home files
+├─ pi (pi.dev install.sh → ~/.local)
+├─ OSC52/OSC9 shims → ~/.local/bin (headless)
+└─ nvim "+Lazy! sync" (pins from vendored lazy-lock)
 ```
 
-`NIXOS_CONFIG_DIR` in `code-remote.conf` points at the local checkout; the
-remote writes `~/nixos-config/home/remote-user.nix` (its own username/home)
-before activation — see `home/remote-default.nix` in the nixos-config repo.
+The host writes `~/nixos-config/home/remote-user.nix` (its own username/home)
+before activation and stages it — a flake in a git tree is sourced from the
+git index, so an untracked file would be invisible to nix. See
+`home/remote-default.nix` in the nixos-config repo.
 
 ## What the remote gets (declarative, from the flake)
 
@@ -64,8 +102,8 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
 
 All versions come from the nixos-config `flake.lock` — bump with
-`nix flake update` there, commit the lock. Tool churn on the remote is one
-`code-remote <host> sync`.
+`nix flake update` there, commit the lock, then re-run `./bootstrap` on the
+host (or the local `bootstrap` one-liner).
 
 ## What gets synced (imperative data, from `code-remote.conf`)
 
@@ -83,22 +121,27 @@ All versions come from the nixos-config `flake.lock` — bump with
 - `~/.config/code-remote/passenv` — env vars from `PASS_ENVARS` (resolved via
   local `pass`), sourced by the HM bashrc; for providers that read the
   environment (e.g. `OPENROUTER_API_KEY`).
-- `~/.bashrc-personal` (aliases) and `~/.agents/skills/` (dereferenced).
-- The nixos-config repo itself (see Architecture above).
+- `~/.bashrc-personal` (aliases).
 
-Not synced since v2: `~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim/`,
-`~/.config/starship.toml`, `~/scripts` — **home-manager owns those**; edit
-them in the nixos-config repo, not on the remote.
+Not synced at all anymore: `~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim/`,
+`~/.config/starship.toml`, `~/scripts`, `~/.agents/skills`, `~/nixos-config` —
+**home-manager owns the first five** (edit them in the nixos-config repo), the
+last two are plain git clones on the host that the bootstrap script updates.
 
 ## First run
 
+Either the manual ssh-first way (see top) or the local one-liner, which does
+the same thing (clone/pull on the host + run):
+
 ```sh
 bin/code-remote myserver bootstrap   # ~10 min: nix installer + closure downloads
+bin/code-remote myserver sync        # ONCE: pi keys + passenv + aliases (from local pass)
 bin/code-remote myserver             # → tmux session, nvim ready (connect is the default)
 ```
 
 Bootstrap is idempotent — re-run anytime (nix is skipped if present, HM
-activation only rewrites what moved).
+activation only rewrites what moved). Credential `sync` is needed once per
+host (and whenever keys rotate).
 
 **Migrating an existing v1 remote:** bootstrap moves the old `~/.bashrc`,
 `~/.tmux.conf`, `~/.config/nvim`, `~/.config/starship.toml`,
@@ -123,8 +166,9 @@ hatch: `bootstrap-legacy` restores the v1 flow (old script kept as
   fine for normal VMs, tight below ~5 GB disks.
 - **nvim plugin updates** on remotes: bump the vendored `lazy-lock.json` in
   `~/repos/nixos-config` (`:Lazy update` locally, copy the lock over,
-  commit), then `code-remote <host> sync`. `:Lazy update` inside the remote
-  nvim cannot persist (store config is read-only by design).
+  commit, push), then re-run `./bootstrap` on the host (or the local
+  `bootstrap` one-liner). `:Lazy update` inside the remote nvim cannot persist
+  (store config is read-only by design).
 - First `nvim` launch / bootstrap may still fetch a few Mason LSP servers
   lazily (nodejs/gcc from the HM profile cover their build needs).
 - **Clipboard**: tmux copy-mode `y` reaches your local clipboard on headless

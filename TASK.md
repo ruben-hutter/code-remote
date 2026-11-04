@@ -36,28 +36,32 @@ locally with `nix build ~/repos/nixos-config/master#homeConfigurations.remote.ac
    note arch (picks homeConfigurations.remote vs remote-aarch64), whether user
    is root (no `sudo` binary → `install_nix` needs a fix: run installer directly
    as root — likely bug #0 if the image is root-only).
-2. **(OPTIONAL — skip for a plain v2 test)** Only needed to exercise the
-   migration code that existing v1 remotes will hit. Run
-   `bin/code-remote <alias> bootstrap-legacy` to manufacture a realistic v1
-   state (pinned binaries in `~/.local/bin`, tpm clones, managed bashrc
-   blocks), verify it works (`grep direnv ~/.bashrc`, tmux runs), then
-   proceed. On a fresh VM you can ignore this entirely.
-3. **v2 bootstrap (the real test)**: `bin/code-remote <alias> bootstrap` —
-   expect ~10 min (nix installer + closure downloads). Watch for: sudo
-   prompts, nix install failure, HM activation aborts (conflicting files not
-   covered by the migration list), pi install, lazy sync.
-4. **Walk `TESTING.md` §2** layer by layer: nix+HM, tools, nvim, bash, tmux,
+2. **v1 first (OPTIONAL — migration setup only)**: `bin/code-remote <alias>
+   bootstrap-legacy` manufactures a realistic v1 state (pinned binaries,
+   tpm clones, managed bashrc blocks). Skip for a plain v2 test.
+3. **Manual ssh-first flow (the new primary path)**: `ssh <alias>`, then
+   `git clone https://github.com/ruben-hutter/code-remote && cd code-remote
+   && ./bootstrap`. Expect ~10 min (nix installer + closure downloads). Watch
+   for: sudo prompts, nix install failure, HM activation aborts (conflicting
+   files not covered by the migration list), pi install, lazy sync.
+4. **Local one-liner**: `bin/code-remote <alias> bootstrap` from the laptop —
+   must detect the existing clone, pull, and re-run (idempotency across both
+   entry points).
+5. **`bin/code-remote <alias> sync`** — pi keys + passenv + aliases from the
+   laptop (the ONLY step that carries credentials).
+6. **Walk `TESTING.md` §2** layer by layer: nix+HM, tools, nvim, bash, tmux,
    clipboard/notifications (inside tmux — needs OSC52-capable local terminal),
    pi, nix dev shells. For the dev-shell test make a tiny flake on the VM
    (`~/devshell-test` with `pkgs.mkShell { packages = [ pkgs.hello ]; }`) +
    `.envrc` `use flake` + `direnv allow`, confirm `command -v hello`.
-5. **Migration artifacts** (only if step 2 ran): `ls *.pre-home-manager` in
+7. **Migration artifacts** (only if step 2 ran): `ls *.pre-home-manager` in
    `$HOME`, tpm gone, `~/.local/bin` reduced to pi + shims,
-   `~/.nix-profile/bin` authoritative.
-6. **Idempotency**: `bin/code-remote <alias> sync` twice — second run must be
-   quick and change nothing; `bin/code-remote <alias> connect` must land in
-   tmux with session picker.
-7. **Fix loop** until all green: reproduce → diagnose (read the failing
+   `~/.nix-profile/bin` authoritative; `~/nixos-config` is now a git clone.
+8. **Idempotency**: re-run `./bootstrap` on the host and
+   `bin/code-remote <alias> bootstrap` — repos fast-forward, nix skips,
+   HM rewrites only what moved; `connect` must land in tmux with session
+   picker.
+9. **Fix loop** until all green: reproduce → diagnose (read the failing
    command's output on the VM) → fix in the right repo → re-run.
 
 ## Where bugs are likely (check here first)
