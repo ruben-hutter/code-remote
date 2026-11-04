@@ -102,7 +102,8 @@ tmux                                   # start: prefix is C-a, catppuccin bar, t
 **bash** — pushed config + managed blocks:
 
 ```sh
-grep -nE 'fastfetch|direnv' ~/.bashrc           # no hits (local-only, stripped)
+grep -nE 'fastfetch' ~/.bashrc                  # no hits (local-only, stripped)
+grep -c 'direnv hook bash' ~/.bashrc            # exactly 1 — managed block (fallback eval)
 tail ~/.bashrc                                   # "# >>> code-remote >>>" block
 ls ~/.bashrc-personal                            # your aliases, pushed as-is
 bash -ic 'echo $PATH; alias ll'                  # ~/.local/bin first; alias works
@@ -111,6 +112,16 @@ pi auth check --provider zai                     # ready
 pi auth check --provider fhnw-cybersec           # ready
 pi --list-models | grep -c '^zai '               # 7-ish, not 0
 bash -ic 'echo ${OPENROUTER_API_KEY:+set}'       # set (passenv file)
+```
+
+**nix + direnv** — flake dev shells (LiveTogether-style):
+
+```sh
+direnv --version                                 # 2.38.x (bootstrap-pinned)
+nix --version                                    # nix (Nix) 2.35.4 (after re-login: managed block sources nix.sh)
+grep experimental-features ~/.config/nix/nix.conf # = nix-command flakes
+cd ~/some-flake-repo && direnv allow             # dev shell activates, PATH gains nix store bins
+bash -ic 'command -v direnv'                     # ~/.local/bin/direnv (PATH block runs even non-interactively)
 ```
 
 **pi** — binaries, config, packages, credentials:

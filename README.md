@@ -1,8 +1,8 @@
 # code-remote
 
 Provision a **userspace** nvim dev environment on a remote host over plain ssh —
-no root needed (one exception: tmux), no dotfiles maintained on the remote, no
-GitHub keys on the remote.
+no root needed (two exceptions: tmux, nix), no dotfiles maintained on the
+remote, no GitHub keys on the remote.
 
 The remote stays dumb: everything is pushed **from your machine** via rsync and
 installed by one idempotent script. Re-running `sync` reconciles config drift.
@@ -34,12 +34,16 @@ legacy order (`bin/code-remote <command> <ssh-alias>`) still works.
 | bat | 0.26.1 | static musl binary |
 | starship | 1.24.2 | static musl binary |
 | jq | 1.8.1 | raw static binary |
+| direnv | 2.38.2 | static binary |
+| nix | 2.35.4 | official installer (multi-user daemon; flakes on via `~/.config/nix/nix.conf`) |
 
 Base prerequisites (git, curl, tar, unzip) are checked and only installed via
-the system package manager if missing. **tmux** is the one tool userspace
-cannot provide: if the host lacks it, the script tries `sudo` once and fails
-with a clear message otherwise. Supports x86_64 and aarch64; Debian/Ubuntu,
-Fedora, Arch, openSUSE for the base-package path.
+the system package manager if missing. **tmux** and **nix** are the two tools
+userspace cannot provide: if the host lacks them, the script tries `sudo` (nix
+skips with a warning when there is none). On hosts without systemd, nix falls
+back to a single-user install on a `/nix` pre-created and owned by your user.
+Supports x86_64 and aarch64; Debian/Ubuntu, Fedora, Arch, openSUSE for the
+base-package path.
 
 Versions are pinned at the top of `remote/bootstrap.sh` — bump them there to
 match your local machine.
@@ -68,9 +72,9 @@ your GitHub credentials):
   `~/scripts` on PATH so `wtree` works out of the box, and `connect` picks up
   the session picker
 - `~/.bashrc` (+ `~/.bashrc-personal` with your aliases) → remote, **then
-  transformed**: local-only bits deleted (`fastfetch`, direnv hook, plain
-  starship/fzf evals — the managed block re-adds those with `2>/dev/null`
-  fallbacks)
+  transformed**: local-only bits deleted (`fastfetch`, plain direnv/starship/fzf
+  evals — the managed block re-adds direnv hook and starship/fzf with
+  `2>/dev/null` fallbacks)
 - `~/.config/starship.toml` → remote (your `.bashrc` already evals starship)
 - pi **API keys** → remote, resolved locally: `auth.json` stores keys as
   `!pass show …` commands here; at sync time those commands run **on your
@@ -94,7 +98,7 @@ your GitHub credentials):
   (see above). Two managed blocks are injected idempotently: a PATH block at
   line 1 (`~/.local/bin`, `~/scripts` — above the interactivity guard so
   non-interactive ssh works) and a `# >>> code-remote >>>` block at the end
-  (synced API-key env file, starship, fzf).
+  (synced API-key env file, nix profile, direnv hook, starship, fzf).
 
 ## First run
 
@@ -130,3 +134,7 @@ Bootstrap is idempotent — re-run anytime to bump/reinstall tools.
   `PASS_ENVARS`.
 - Distro nvim/node packages are never used — intentionally; LTS releases ship
   versions too old for current plugins.
+- **nix dev shells**: direnv hook + flakes are provisioned, so a repo with
+  `.envrc` containing `use flake` (e.g. `~/repos/LiveTogether`) auto-activates
+  its devShell after one `direnv allow`. On hosts without sudo, nix is skipped
+  (direnv still works for plain `.envrc` exports).

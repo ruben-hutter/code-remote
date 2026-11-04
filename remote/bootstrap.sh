@@ -4,11 +4,11 @@
 #
 # usage: bootstrap.sh [all|tools|configs]
 #   all      tools + configs (default)
-#   tools    binaries only (nvim, node, static CLI tools, pi)
+#   tools    binaries only (nvim, node, static CLI tools, direnv, nix, pi)
 #   configs  config transforms + tmux/nvim plugin install only
 #
-# Everything installs into ~/.local — no root required, except tmux if the
-# host doesn't already have it (see ensure_base).
+# Everything installs into ~/.local — no root required, except tmux and nix
+# if the host doesn't already have them (see ensure_base / install_nix).
 set -euo pipefail
 
 MODE="${1:-all}"
@@ -23,6 +23,8 @@ LAZYGIT_VERSION=0.66.2
 BAT_VERSION=0.26.1
 STARSHIP_VERSION=1.24.2
 JQ_VERSION=1.8.1
+DIRENV_VERSION=2.38.2
+NIX_VERSION=2.35.4
 # -----------------------------------------------------------------------------
 
 BIN="$HOME/.local/bin"
@@ -153,6 +155,53 @@ install_node() {
   ok "node v$NODE_VERSION"
 }
 
+install_direnv() {
+  if uptodate direnv "$DIRENV_VERSION"; then ok "direnv $DIRENV_VERSION present"; return; fi
+  local a; case "$ARCH" in x86_64) a=amd64 ;; aarch64) a=arm64 ;; esac
+  install_raw "https://github.com/direnv/direnv/releases/download/v$DIRENV_VERSION/direnv.linux-$a" direnv
+}
+
+enable_nix_flakes() {
+  # flake dev shells (`use flake` in .envrc) need the experimental opt-in;
+  # keep whatever experimental-features are already set, append ours if missing
+  local conf="$HOME/.config/nix/nix.conf"
+  mkdir -p "$HOME/.config/nix"
+  [ -f "$conf" ] || touch "$conf"
+  if grep -qE '^experimental-features[[:space:]]*=' "$conf"; then
+    grep -q 'nix-command' "$conf" ||
+      sed -i -E 's|^experimental-features([[:space:]]*=.*)$|& nix-command flakes|' "$conf"
+  else
+    printf 'experimental-features = nix-command flakes\n' >> "$conf"
+  fi
+}
+
+install_nix() {
+  local nixbin
+  for nixbin in /nix/var/nix/profiles/default/bin/nix "$HOME/.nix-profile/bin/nix"; do
+    if [ -x "$nixbin" ]; then
+      ok "nix present ($("$nixbin" --version 2>/dev/null))"
+      enable_nix_flakes
+      return
+    fi
+  done
+  if ! have sudo; then
+    warn "no sudo — cannot install nix (it owns /nix); skipping"
+    return 0
+  fi
+  info "installing nix $NIX_VERSION (official installer, multi-user — takes a minute)"
+  fetch "https://releases.nixos.org/nix/nix-$NIX_VERSION/install" "$TMP/nix-install"
+  if [ -d /run/systemd/system ]; then
+    sh "$TMP/nix-install" --daemon || { warn "nix install failed (continuing without it)"; return 0; }
+  else
+    # no systemd (container): the daemon needs it — do a single-user install on
+    # a /nix we pre-create, so the build user is us instead of root
+    sudo mkdir -p /nix && sudo chown "$(id -u):$(id -g)" /nix
+    sh "$TMP/nix-install" --no-daemon || { warn "nix install failed (continuing without it)"; return 0; }
+  fi
+  enable_nix_flakes
+  ok "nix $NIX_VERSION (flakes via ~/.config/nix/nix.conf)"
+}
+
 install_statics() {
   local musl_x="x86_64-unknown-linux-musl" musl_a="aarch64-unknown-linux-musl"
   local gnu_x="x86_64-unknown-linux-gnu" gnu_a="aarch64-unknown-linux-gnu"
@@ -279,10 +328,11 @@ configure_bashrc() {
     '$0 == pbs || $0 == bs { skip = 1; next }
      skip && ($0 == pes || $0 == es) { skip = 0; next }
      !skip { print }' "$rc" > "$rc.nvr" && mv "$rc.nvr" "$rc"
-  # local-only bits from the pushed ~/.bashrc: fastfetch and direnv are not
-  # provisioned on remotes; the plain starship/fzf evals are re-added by the
-  # managed block below (with 2>/dev/null fallbacks). Patterns deliberately
-  # require the closing paren so the managed block lines never match.
+  # local-only bits from the pushed ~/.bashrc: fastfetch is not provisioned
+  # on remotes; direnv/starship/fzf eval lines are stripped here and re-added
+  # by the managed block below (with 2>/dev/null fallbacks). Patterns
+  # deliberately require the closing paren so the managed block lines never
+  # match.
   sed -i -E \
     -e '/^fastfetch$/d' \
     -e '/^# Start fastfetch$/d' \
@@ -300,7 +350,7 @@ configure_bashrc() {
   {
     printf '%s\nexport PATH="$HOME/.local/bin:$HOME/scripts:$PATH"\n%s\n' "$pbegin" "$pend"
     cat -s "$rc"
-    printf '%s\n# API keys synced by code-remote (plain env file)\n[ -r "$HOME/.config/code-remote/passenv" ] && . "$HOME/.config/code-remote/passenv"\neval "$(starship init bash 2>/dev/null)"\neval "$(fzf --bash 2>/dev/null)"\n%s\n' "$begin" "$end"
+    printf '%s\n# API keys synced by code-remote (plain env file)\n[ -r "$HOME/.config/code-remote/passenv" ] && . "$HOME/.config/code-remote/passenv"\n# nix (flakes) + direnv — provisioned by bootstrap; dev shells via .envrc `use flake`\n[ -r /etc/profile.d/nix.sh ] && . /etc/profile.d/nix.sh\n[ -r "$HOME/.nix-profile/etc/profile.d/nix.sh" ] && . "$HOME/.nix-profile/etc/profile.d/nix.sh"\neval "$(direnv hook bash 2>/dev/null)"\neval "$(starship init bash 2>/dev/null)"\neval "$(fzf --bash 2>/dev/null)"\n%s\n' "$begin" "$end"
   } > "$tmp" && mv "$tmp" "$rc"
   ok "bashrc managed blocks written"
 }
@@ -338,6 +388,8 @@ case "$MODE" in
     install_nvim
     install_node
     install_statics
+    install_direnv
+    install_nix
     install_pi
     ;;
   configs)
@@ -353,6 +405,8 @@ case "$MODE" in
     install_nvim
     install_node
     install_statics
+    install_direnv
+    install_nix
     install_clipboard_shim
     install_notify_shim
     install_pi
