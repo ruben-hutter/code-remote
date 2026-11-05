@@ -134,8 +134,8 @@ needs $WAYLAND_DISPLAY, absent on headless hosts). Paste on your **local**
 machine; tmux sends the buffer as OSC52 (`terminal-overrides Ms` +
 `set-clipboard on` are configured). To verify remotely without a human
 terminal, attach with a pty (`script -qec "TERM=xterm-256color tmux attach"`)
-and grep the capture for `52;c;;` (double semicolon — tmux emits an empty
-selection param; grepping `52;c;<b64>` gives false negatives).
+and grep the capture for `]52;;<b64>` (canonical 3-field OSC52 — tmux emits
+an empty selection param; a `52;c;<b64>` grep gives false negatives).
 If paste still fails, it's your LOCAL terminal dropping OSC52 — pi
 notifications (notify-send) are intentionally not installed on remotes.
 
