@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # code-remote bootstrap — home-manager + nix provisioner for coding VMs.
 # Runs ON THE REMOTE host, from the cloned repo (~/code-remote). Idempotent:
-# safe to re-run at any time.
+# safe to re-run at any time. Driven by bin/code-remote over plain ssh (or
+# manually: ssh in, cd ~/code-remote, bash remote/bootstrap.sh).
 #
 # Everything declarative lives in THIS repo: flake.nix + home/ define a
 # headless, bash-first home-manager profile (nvim with vendored config,
@@ -12,19 +13,12 @@
 #   1. ensure base tools (git, curl, tar, unzip)
 #   2. install nix (official installer — sudo; multi-user daemon, or
 #      single-user on non-systemd hosts)
-#   3. migrate pre-home-manager files out of the way (HM aborts on conflicts)
-#   4. nix build + activate the home-manager generation
-#   5. pi (official install.sh; not in nixpkgs) + pi extension reconcile
-#   6. OSC52/OSC9 shims for headless hosts
-#   7. nvim plugin fetch (lazy sync; versions pinned by vendored lazy-lock)
-#
-# usage: bootstrap.sh [all|hm|pi]
-#   all  everything (default)
-#   hm   base + nix + home-manager switch
-#   pi   pi + shims + lazy sync (assumes hm ran before)
+#   3. nix build + activate the home-manager generation (conflicting
+#      pre-HM dotfiles are moved to *.pre-home-manager by activation)
+#   4. pi (official install.sh; not in nixpkgs) + pi extension reconcile
+#   5. nvim plugin fetch (lazy sync; versions pinned by vendored lazy-lock)
+#   6. enable user linger (tmux survives ssh disconnects)
 set -euo pipefail
-
-MODE="${1:-all}"
 
 # --- pinned versions ---------------------------------------------------------
 NIX_VERSION=2.35.4
@@ -111,8 +105,7 @@ ensure_base() {
     warn "missing base tools:$missing"
     pkg_install "$missing" || die "these are required to bootstrap:$missing"
   fi
-  have python3 || warn "python3 not found — some LSP servers want it"
-  # NOTE: tmux is NOT a base prerequisite anymore — home-manager installs it.
+  # NOTE: tmux is NOT a base prerequisite — home-manager installs it.
 }
 
 # --- nix (official installer; needs sudo once for /nix) ----------------------
@@ -142,50 +135,6 @@ install_nix() {
 }
 
 # --- keep tmux servers alive across ssh disconnects ---------------------------
-# tmux >= 3.8 spawns panes as systemd user scopes; when the ssh session that
-# started the server closes and the user manager stops (no linger), detached
-# servers and their sessions are killed — detaching would lose everything.
-enable_linger() {
-  loginctl show-user "$(id -un)" --property=Linger 2>/dev/null | grep -q yes && return 0
-  if have sudo && sudo loginctl enable-linger "$(id -un)" 2>/dev/null; then
-    ok "user linger enabled (tmux survives ssh disconnects)"
-  else
-    warn "could not enable linger — detached tmux sessions die on disconnect"
-  fi
-}
-
-# --- migration: get pre-home-manager files out of HM's way -------------------
-# HM aborts activation on conflicting files it doesn't manage, and tmux reads
-# ~/.tmux.conf BEFORE ~/.config/tmux/tmux.conf (which would shadow HM's).
-adopt_or_setaside() { # <path>
-  local p="$1"
-  [ -e "$p" ] || return 0
-  case "$(readlink "$p" 2>/dev/null)" in
-    /nix/store/*) return 0 ;; # already HM-managed
-    *)
-      mv "$p" "$p.pre-home-manager"
-      info "moved aside: $p → $(basename "$p").pre-home-manager"
-      ;;
-  esac
-}
-
-migrate_to_hm() {
-  local f
-  for f in .bashrc .bash_profile .profile .tmux.conf \
-    .config/nvim .config/starship.toml .config/nix/nix.conf \
-    .nixos-config .agents/skills; do
-    adopt_or_setaside "$HOME/$f"
-  done
-  # v1 leftovers: tpm + cloned plugins are unused now (plugins come from
-  # nixpkgs); old pinned binaries/opt dirs would only waste disk
-  rm -rf "$HOME/.config/tmux/plugins" "$HOME/.tmux/plugins"
-  local b
-  for b in nvim node npm npx corepack rg fd fzf lazygit bat starship jq direnv; do
-    rm -f "$BIN/$b"
-  done
-  rm -rf "$HOME/.local/opt"/nvim-* "$HOME/.local/opt"/node-v* 2>/dev/null || true
-  ok "migration check done"
-}
 
 # --- home-manager -------------------------------------------------------------
 hm_switch() {
@@ -193,6 +142,9 @@ hm_switch() {
   # flakes must be on for the build itself; via env, NOT nix.conf — home-manager
   # owns ~/.config/nix/nix.conf after activation and aborts on conflicts
   export NIX_CONFIG="experimental-features = nix-command flakes"
+  # conflicting pre-HM dotfiles are moved to <path>.pre-home-manager by
+  # activation instead of aborting (all the standalone CLI's `-b` flag does)
+  export HOME_MANAGER_BACKUP_EXT=pre-home-manager
   have nix || die "nix not on PATH — install failed?"
   local cfg=remote
   [ "$ARCH" = "aarch64" ] && cfg=remote-aarch64
@@ -208,6 +160,19 @@ hm_switch() {
   # before it existed; re-export so pi/node/nvim see the HM tools
   export PATH="$HOME/.nix-profile/bin:$PATH"
   ok "home-manager active ($(readlink "$HOME/.nix-profile" 2>/dev/null | grep -oE 'home-manager-generation|[0-9]+-link' || echo 'generation set'))"
+}
+
+# --- keep tmux servers alive across ssh disconnects ---------------------------
+# tmux >= 3.8 spawns panes as systemd user scopes; when the ssh session that
+# started the server closes and the user manager stops (no linger), detached
+# servers and their sessions are killed — detaching would lose everything.
+enable_linger() {
+  loginctl show-user "$(id -un)" --property=Linger 2>/dev/null | grep -q yes && return 0
+  if have sudo && sudo loginctl enable-linger "$(id -un)" 2>/dev/null; then
+    ok "user linger enabled (tmux survives ssh disconnects)"
+  else
+    warn "could not enable linger — detached tmux sessions die on disconnect"
+  fi
 }
 
 # --- pi (not in nixpkgs — official install.sh into ~/.local) ------------------
@@ -232,20 +197,6 @@ install_pi() {
     || warn "pi package reconcile failed (run manually: pi update --extensions)"
 }
 
-# --- OSC shims for headless hosts (reused from v1) ----------------------------
-install_clipboard_shim() {
-  # skip only on a real Wayland session (real wl-copy works there). The HM
-  # profile ships wl-clipboard, so plain `have wl-copy` is true even headless —
-  # checking it alone would skip the OSC52 shim and silently break tmux yank.
-  if [ -n "${WAYLAND_DISPLAY:-}" ] && have wl-copy; then return 0; fi
-  for t in pbcopy clip.exe xsel xclip; do
-    have "$t" && return 0
-  done
-  mkdir -p "$BIN" # fresh hosts have no ~/.local/bin yet
-  install -m 755 "$SRCDIR/bin/wl-copy" "$BIN/wl-copy"
-  ok "wl-copy OSC52 shim (tmux-yank on headless host)"
-}
-
 # --- nvim plugins (versions pinned by the vendored lazy-lock.json) ------------
 nvim_lazy_sync() {
   have nvim || { warn "nvim not on PATH — skipping lazy sync"; return 0; }
@@ -257,34 +208,12 @@ nvim_lazy_sync() {
 }
 
 # --- main ---------------------------------------------------------------------
-case "$MODE" in
-  hm)
-    ensure_base
-    install_nix
-    stage_remote_user
-    migrate_to_hm
-    hm_switch
-    enable_linger
-    ;;
-  pi)
-    install_pi
-    install_clipboard_shim
-    nvim_lazy_sync
-    ;;
-  all)
-    ensure_base
-    install_nix
-    stage_remote_user
-    migrate_to_hm
-    hm_switch
-    install_pi
-    install_clipboard_shim
-    nvim_lazy_sync
-    enable_linger
-    ;;
-  *)
-    die "usage: bootstrap.sh [all|hm|pi]"
-    ;;
-esac
+ensure_base
+install_nix
+stage_remote_user
+hm_switch
+install_pi
+nvim_lazy_sync
+enable_linger
 
-info "bootstrap ($MODE) done."
+info "bootstrap done."
