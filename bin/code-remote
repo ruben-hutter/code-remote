@@ -68,18 +68,23 @@ pin_nvim_lock() {
 }
 
 # pi keys: auth.json stores them as "!command" values (they call `pass` locally,
-# which does not exist on remotes). Resolve those commands HERE and write the
-# literal keys into the remote auth.json, preserving credentials that exist
-# only on the remote (e.g. OAuth logins done there).
-sync_pi_keys() {
-  local r="$HOST" p cmd key tmp tmpm providers
+# which does not exist on remotes). Build a resolved copy in PI_AUTH_RESOLVED:
+# literal keys written; credentials that exist only on the remote are preserved
+# (e.g. OAuth logins done there).
+resolve_pi_keys() {
+  PI_AUTH_RESOLVED=""
   [ -f "$HOME/.pi/agent/auth.json" ] || return 0
-  rc "$r" 'test -f ~/.pi/agent/auth.json' 2>/dev/null || return 0
+  PI_AUTH_RESOLVED="$(mktemp)"
+  chmod 600 "$PI_AUTH_RESOLVED"
+  if rc "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
+    rc "$HOST" 'cat ~/.pi/agent/auth.json' > "$PI_AUTH_RESOLVED" # keep remote-only creds
+  else
+    cp "$HOME/.pi/agent/auth.json" "$PI_AUTH_RESOLVED"
+  fi
+  local p cmd key tmpm providers
   providers="$(jq -r 'to_entries[] | select(.value.type == "api_key" and (.value.key | startswith("!"))) | .key' \
     "$HOME/.pi/agent/auth.json" 2>/dev/null)" || return 0
   [ -n "$providers" ] || return 0
-  tmp="$(mktemp)"
-  rc "$r" 'cat ~/.pi/agent/auth.json' > "$tmp"
   while IFS= read -r p; do
     cmd="$(jq -r --arg p "$p" '.[$p].key[1:]' "$HOME/.pi/agent/auth.json")"
     key="$(bash -c "$cmd" 2>/dev/null | head -n 1 | tr -d '\r')"
@@ -87,13 +92,17 @@ sync_pi_keys() {
       info "pi keys: could not resolve $p — left as-is"
       continue
     fi
-    tmpm="$tmp.m"
-    jq --arg p "$p" --arg k "$key" '.[$p].type = "api_key" | .[$p].key = $k' "$tmp" > "$tmpm" && mv "$tmpm" "$tmp"
+    tmpm="$PI_AUTH_RESOLVED.m"
+    jq --arg p "$p" --arg k "$key" '.[$p].type = "api_key" | .[$p].key = $k' "$PI_AUTH_RESOLVED" > "$tmpm" && mv "$tmpm" "$PI_AUTH_RESOLVED"
     info "pi keys: $p resolved from pass"
   done <<< "$providers"
-  chmod 600 "$tmp"
-  rsync -az "$tmp" "$r:.pi/agent/auth.json"
-  rm -f "$tmp"
+}
+
+sync_pi_keys() {
+  [ -n "${PI_AUTH_RESOLVED:-}" ] || return 0
+  rc "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null || return 0
+  rsync -az "$PI_AUTH_RESOLVED" "$HOST:.pi/agent/auth.json"
+  rm -f "$PI_AUTH_RESOLVED"; PI_AUTH_RESOLVED=""
 }
 
 push_data_configs() {
@@ -140,15 +149,18 @@ push_data_configs() {
     rm -f "$envtmp"
   fi
 
-  sync_pi_keys
-  # credentials: a remote keeps its own auth.json; push only into emptiness
-  if [ -f "$HOME/.pi/agent/auth.json" ]; then
+  resolve_pi_keys
+  sync_pi_keys # remote already has auth.json → push resolved merge
+  # seed: remote has NO auth.json → push the resolved copy. Never the raw file:
+  # "!pass" commands cannot work on the remote (no pass there).
+  if [ -n "${PI_AUTH_RESOLVED:-}" ]; then
     if rc "$r" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
       info "auth.json: remote keeps its own credentials"
     elif [ "$SYNC_PI_AUTH" = "1" ]; then
-      rsync -az "$HOME/.pi/agent/auth.json" "$r:.pi/agent/"
-      info "auth.json pushed (remote had none)"
+      rsync -az "$PI_AUTH_RESOLVED" "$r:.pi/agent/auth.json"
+      info "auth.json pushed resolved (remote had none)"
     fi
+    rm -f "$PI_AUTH_RESOLVED"; PI_AUTH_RESOLVED=""
   fi
 }
 
