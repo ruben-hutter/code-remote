@@ -160,11 +160,12 @@ abort on them) — the HM generation then owns everything.
 
 ## Known limits
 
+- **Debian/Ubuntu only**: base tools install via apt; the nix multi-user
+  install needs systemd. Fedora/Arch/container hosts are out of scope (the
+  script dies with a clear message there).
 - **sudo** is needed once, for nix (`/nix` + daemon users). tmux is no longer
   a root exception — it comes from the HM profile. Without sudo, bootstrap
   dies with a clear message (install nix manually, re-run).
-- **SELinux-enforcing hosts** (Fedora/RHEL server): the nix daemon historically
-  needs a policy tweak there. Ubuntu/Debian/Arch VMs are unaffected.
 - **Non-interactive ssh** (`ssh host <cmd>`): the HM bashrc has an
   interactivity guard, so PATH comes from `.profile` — login shells and tmux
   panes are fine, but a bare non-login command only sees `~/.local/bin`.

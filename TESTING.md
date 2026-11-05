@@ -168,5 +168,4 @@ bin/code-remote proxcode          # re-run: updates the host + re-syncs keys/con
 
 - `ssh host <cmd>` non-interactive: PATH = `~/.local/bin` only (HM bashrc
   interactivity guard); login shells + tmux panes are fine.
-- SELinux-enforcing hosts may need a nix daemon policy tweak.
 - The nix closure needs ~1–2 GB disk on the remote.

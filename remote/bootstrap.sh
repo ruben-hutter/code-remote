@@ -10,9 +10,8 @@
 # ~/scripts and ~/.agents/skills come from flake inputs (public, locked).
 # This script is the thin imperative residue nix cannot express:
 #
-#   1. ensure base tools (git, curl, tar, unzip)
-#   2. install nix (official installer — sudo; multi-user daemon, or
-#      single-user on non-systemd hosts)
+#   1. ensure base tools (git, curl, tar, unzip; apt — Debian/Ubuntu only)
+#   2. install nix (official installer — sudo, multi-user daemon; needs systemd)
 #   3. nix build + activate the home-manager generation (conflicting
 #      pre-HM dotfiles are moved to *.pre-home-manager by activation)
 #   4. pi (official install.sh; not in nixpkgs) + pi extension reconcile
@@ -87,13 +86,10 @@ pkg_install() {
     warn "no sudo — cannot install: $pkgs"
     return 1
   fi
-  if have apt-get; then wait_pkg_lock && sudo apt-get update -qq && sudo apt-get install -y $pkgs
-  elif have dnf; then sudo dnf install -y $pkgs
-  elif have yum; then sudo yum install -y $pkgs
-  elif have pacman; then sudo pacman -S --noconfirm $pkgs
-  elif have zypper; then sudo zypper install -y $pkgs
-  else warn "no known package manager — install manually: $pkgs"; return 1
-  fi
+  # Debian/Ubuntu only — the VMs/servers this targets. wait_pkg_lock handles
+  # the first-boot apt race (unattended-upgrades holding the lock).
+  have apt-get || { warn "no apt-get — Debian/Ubuntu only; install manually: $pkgs"; return 1; }
+  wait_pkg_lock && sudo apt-get update -qq && sudo apt-get install -y $pkgs
 }
 
 ensure_base() {
@@ -120,16 +116,10 @@ install_nix() {
   if ! have sudo; then
     die "no sudo — nix needs to create /nix; give the user sudo or install nix manually"
   fi
+  [ -d /run/systemd/system ] || die "no systemd — the nix multi-user install needs it (VM/server, not a bare container)"
   info "installing nix $NIX_VERSION (official installer, multi-user — takes a minute)"
   fetch "https://releases.nixos.org/nix/nix-$NIX_VERSION/install" "$TMP/nix-install"
-  if [ -d /run/systemd/system ]; then
-    sh "$TMP/nix-install" --daemon || die "nix install failed"
-  else
-    # no systemd (container): the daemon needs it — single-user install on a
-    # /nix we pre-create, so the build user is us instead of root
-    sudo mkdir -p /nix && sudo chown "$(id -u):$(id -g)" /nix
-    sh "$TMP/nix-install" --no-daemon || die "nix install failed"
-  fi
+  sh "$TMP/nix-install" --daemon || die "nix install failed"
   ok "nix $NIX_VERSION installed"
   export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
 }
