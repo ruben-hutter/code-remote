@@ -56,7 +56,10 @@ That's it. `bin/code-remote` (or `just bootstrap myserver`):
       activation itself
    5. installs **pi** (official install.sh → `~/.pi/agent/bin`) and reconciles
       declared pi packages, fetches nvim plugins (pinned by the desktop
-      `lazy-lock.json`), enables user linger (tmux survives ssh disconnects)
+      `lazy-lock.json`), warms up nvim (headless scratch-file open so the
+      one-time mason/treesitter/copilot installs finish during bootstrap,
+      not during your first editor open — e.g. pi's ctrl+g), enables user
+      linger (tmux survives ssh disconnects)
 4. **resolves + pushes pi API keys** (local `!pass show …` commands run on
    your machine; literal keys land in the remote's `auth.json`)
 
@@ -115,7 +118,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 | tmux | bash panes, C-a prefix, vi mode, catppuccin, yank (OSC52 on headless), resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
 | shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` sourced; new interactive shells drop straight into the tmux session picker (`tm` — no-op inside tmux) |
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
-| tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, bat, btop, htop, lf, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
+| tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, bat, btop, htop, lf, gopls, nil, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
 
 All versions come from this repo's `flake.lock` — bump with `nix flake update`
@@ -178,6 +181,9 @@ abort on them) — the HM generation then owns everything.
   `nix flake update nixos-config`, commit the lock, and re-run
   `bin/code-remote myserver`. `:Lazy update` inside the remote nvim cannot
   persist (store config is read-only by design).
+- **Java on remotes**: no JDK in the profile — nvim-java lazy-loads on
+  `ft=java` and only then wants one. If you code Java on a remote, add a
+  JDK to `home.packages` first.
 - First `nvim` launch / bootstrap may still fetch a few Mason LSP servers
   lazily (nodejs/gcc from the HM profile cover their build needs).
 - **Clipboard**: tmux copy-mode `y` (and mouse drag) reaches your local

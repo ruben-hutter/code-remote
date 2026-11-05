@@ -197,6 +197,45 @@ nvim_lazy_sync() {
   fi
 }
 
+# --- nvim warm-up (one-time installs happen HERE, not in your first editor) ---
+# First config load triggers a pile of async installs: mason LSP servers
+# (mason-lspconfig ensure_installed), treesitter parsers for the filetype,
+# copilot's npx download. If that happens during e.g. pi's ctrl+g external
+# editor, install popups eat keystrokes and the open takes minutes. So: open
+# a scratch markdown file headlessly and wait until the mason package count
+# stops growing. Two passes — single-attempt races then retry here instead
+# of in the user's face.
+nvim_warmup() {
+  have nvim || { warn "nvim not on PATH — skipping warm-up"; return 0; }
+  local scratch warm pass
+  scratch="$(mktemp --suffix=.md)"
+  warm="$(mktemp)"
+  cat >"$warm" <<'EOF'
+local reg = require("mason-registry")
+local last, stable, waited = -1, 0, 0
+while stable < 5 and waited < 300 do
+  local ok, n = pcall(function() return #reg.get_installed_package_names() end)
+  if ok then
+    if n == last then stable = stable + 1 else stable = 0 end
+    last = n
+  end
+  vim.wait(3000)
+  waited = waited + 3
+end
+print(("mason packages: %d (waited %ds)"):format(last, waited))
+vim.cmd("qa!")
+EOF
+  for pass in 1 2; do
+    info "nvim warm-up pass $pass — first-ever run takes a few minutes"
+    if nvim --headless "$scratch" -c "luafile $warm" >/dev/null 2>&1; then
+      ok "warm-up pass $pass done"
+    else
+      warn "warm-up pass $pass incomplete — first interactive open finishes the rest"
+    fi
+  done
+  rm -f "$scratch" "$warm"
+}
+
 # --- main ---------------------------------------------------------------------
 ensure_base
 install_nix
@@ -204,6 +243,7 @@ stage_remote_user
 hm_switch
 install_pi
 nvim_lazy_sync
+nvim_warmup
 enable_linger
 
 info "bootstrap done."

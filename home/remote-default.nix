@@ -371,6 +371,13 @@ in
     # bootstrap: official install.sh → ~/.pi/agent/bin)
     nodejs
 
+    # LSPs mason can NOT install on lean hosts (it builds them with go/cargo,
+    # neither on PATH here) — from nixpkgs instead; the nvim config's mason
+    # ensure_installed list deliberately omits them (see nixos-config
+    # lsp.lua)
+    gopls
+    nil
+
     # utilities
     wget
     curl
