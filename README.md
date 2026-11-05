@@ -178,18 +178,14 @@ hatch: `bootstrap-legacy` restores the v1 flow (old script kept as
   config is read-only by design).
 - First `nvim` launch / bootstrap may still fetch a few Mason LSP servers
   lazily (nodejs/gcc from the HM profile cover their build needs).
-- **Clipboard**: tmux copy-mode `y` reaches your local clipboard on headless
-  hosts via an OSC52 shim: bootstrap installs `~/.local/bin/wl-copy` when no
-  real clipboard tool exists; tmux-yank pipes selections into it and
-  `tmux load-buffer -w` forwards them to your terminal (needs an OSC52-capable
-  terminal). nvim's own `y`/`yy` stays inside the remote nvim unless you add
-  an OSC52 clipboard provider to the nvim config.
-- **Notifications**: pi's notify extension calls `notify-send`; headless hosts
-  have no notification daemon. bootstrap installs a `~/.local/bin/notify-send`
-  OSC shim: notifications surface as a tmux status-line message in your
-  session plus OSC 9/777 escapes to the terminal (desktop notification on your
-  local machine if your terminal supports it; through tmux they need
-  `allow-passthrough on`, otherwise tmux eats them).
+- **Clipboard**: tmux copy-mode `y` (and mouse drag) reaches your local
+  clipboard on headless hosts via an OSC52 shim: bootstrap installs
+  `~/.local/bin/wl-copy` when no real clipboard tool exists, and tmux pipes
+  copies through it (`tmux load-buffer -w`), which forwards the buffer to your
+  terminal as OSC52 (needs an OSC52-capable terminal; `Ms` override +
+  `set-clipboard on` are configured in the remote tmux config). nvim's own
+  `y`/`yy` stays inside the remote nvim unless you add an OSC52 clipboard
+  provider to the nvim config.
 - **API keys live on remotes in plaintext** (by design): resolved from your
   local pass at sync time and written into the remote's `auth.json` +
   `~/.config/code-remote/passenv`. Fine for your own VMs — skip syncing to a

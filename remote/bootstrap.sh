@@ -233,13 +233,6 @@ install_clipboard_shim() {
   ok "wl-copy OSC52 shim (tmux-yank on headless host)"
 }
 
-install_notify_shim() {
-  have notify-send && return 0
-  mkdir -p "$BIN" # fresh hosts have no ~/.local/bin yet
-  install -m 755 "$SRCDIR/bin/notify-send" "$BIN/notify-send"
-  ok "notify-send OSC shim (pi notifications via terminal)"
-}
-
 # --- nvim plugins (versions pinned by the vendored lazy-lock.json) ------------
 nvim_lazy_sync() {
   have nvim || { warn "nvim not on PATH — skipping lazy sync"; return 0; }
@@ -262,7 +255,6 @@ case "$MODE" in
   pi)
     install_pi
     install_clipboard_shim
-    install_notify_shim
     nvim_lazy_sync
     ;;
   all)
@@ -273,7 +265,6 @@ case "$MODE" in
     hm_switch
     install_pi
     install_clipboard_shim
-    install_notify_shim
     nvim_lazy_sync
     ;;
   *)

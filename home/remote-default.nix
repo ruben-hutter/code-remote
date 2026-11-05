@@ -37,7 +37,7 @@ in
   home.sessionVariables.EDITOR = "nvim";
 
   # Remotes run pi (installed by bootstrap into ~/.pi/agent/bin) and need its
-  # runtime on PATH; shims (wl-copy/notify-send OSC) also live in ~/.local/bin
+  # runtime on PATH; shims (wl-copy OSC) also live in ~/.local/bin
   # and MUST shadow the profile's real wl-copy (headless: no Wayland).
   # ~/.nix-profile/bin: the HM generation is registered there by activation
   # (nix-env --profile); explicit here so PATH never depends on the system
@@ -185,10 +185,6 @@ in
     plugins = with pkgs.tmuxPlugins; [
       sensible
       vim-tmux-navigator
-      # yank: copy-mode `y` pipes into wl-copy — on headless hosts that is
-      # code-remote's OSC52 shim (~/.local/bin/wl-copy), which forwards the
-      # selection to the local machine's clipboard through the terminal.
-      yank
       {
         plugin = catppuccin;
         extraConfig = ''
@@ -216,10 +212,15 @@ in
       # tmux; with "on" tmux also pushes its own buffer changes (load-buffer
       # -w, i.e. the wl-copy shim) as OSC52 to the attached terminal.
       set -s set-clipboard on
-      # OSC 9/777 notifications: the notify-send shim DCS-wraps its escapes
-      # for tmux; passthrough is off by default (tmux >= 3.3) and would drop
-      # them. Local terminals without notification support discard these.
-      set -g allow-passthrough on
+
+      # OSC52 yank — explicit, NOT the tmux-yank plugin: the plugin detects
+      # wl-copy via $WAYLAND_DISPLAY/$DISPLAY, which a headless host never
+      # has, so its `y` binding pipes to nothing. Here copy-mode `y` and the
+      # mouse drag-end pipe through the shim (~/.local/bin/wl-copy → tmux
+      # load-buffer -w → OSC52 above).
+      set -g copy-command "tmux load-buffer -w -"
+      bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
+      bind -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
 
       set-environment -g COLORTERM truecolor
       # pi + OSC shims in ~/.local/bin (pi runtime in ~/.pi/agent/bin), then

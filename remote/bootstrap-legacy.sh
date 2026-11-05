@@ -259,17 +259,6 @@ install_clipboard_shim() {
   ok "wl-copy OSC52 shim (tmux-yank on headless host)"
 }
 
-install_notify_shim() {
-  # pi's notify extension calls notify-send; headless hosts have neither the
-  # binary nor a notification daemon. Install an OSC 9/777 shim (plus a tmux
-  # status-line message) so "pi needs a choice" still reaches your terminal
-  for t in notify-send; do
-    have "$t" && return 0
-  done
-  install -m 755 "$SRCDIR/bin/notify-send" "$BIN/notify-send"
-  ok "notify-send OSC shim (pi notifications via terminal)"
-}
-
 install_pi() {
   if have pi && pi --version >/dev/null 2>&1; then
     if pi update </dev/null >/dev/null 2>&1; then
@@ -394,7 +383,6 @@ case "$MODE" in
     ;;
   configs)
     install_clipboard_shim
-    install_notify_shim
     configure_tmux
     configure_bashrc
     install_tmux_plugins
@@ -408,7 +396,6 @@ case "$MODE" in
     install_direnv
     install_nix
     install_clipboard_shim
-    install_notify_shim
     install_pi
     configure_tmux
     configure_bashrc
