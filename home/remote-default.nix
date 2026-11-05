@@ -206,6 +206,17 @@ in
       set-window-option -g window-style bg=terminal
       set-window-option -g window-active-style bg=terminal
 
+      # OSC52 clipboard: tmux only sends copy-buffer escapes when the OUTER
+      # terminal advertises the Ms capability — stock xterm-256color terminfo
+      # does not, so `tmux load-buffer -w` (our wl-copy shim) would silently
+      # do nothing. Declare Ms for every outer terminal; terminals that can't
+      # paste OSC52 just ignore it.
+      set -as terminal-overrides ',*:Ms=\E]52;c;%p1%s;%p2%s\7'
+      # OSC 9/777 notifications: the notify-send shim DCS-wraps its escapes
+      # for tmux; passthrough is off by default (tmux >= 3.3) and would drop
+      # them. Local terminals without notification support discard these.
+      set -g allow-passthrough on
+
       set-environment -g COLORTERM truecolor
       # pi + OSC shims in ~/.local/bin (pi runtime in ~/.pi/agent/bin), then
       # the HM profile; $PATH here is the server's startup PATH (login shell,
