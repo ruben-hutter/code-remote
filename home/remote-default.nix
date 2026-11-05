@@ -111,6 +111,9 @@ in
       grep = "grep --color=auto";
       clera = "clear";
       nv = "nvim";
+
+      # Scripts (desktop ports — same name as the fish shellAliases on the laptop)
+      tm = "$HOME/scripts/tmux_session_manager.sh";
     };
 
     initExtra = ''
