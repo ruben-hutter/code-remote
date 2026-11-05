@@ -205,9 +205,11 @@ in
       # OSC52 clipboard: tmux only sends copy-buffer escapes when the OUTER
       # terminal advertises the Ms capability — stock xterm-256color terminfo
       # does not, so `tmux load-buffer -w` (our wl-copy shim) would silently
-      # do nothing. Declare Ms for every outer terminal; terminals that can't
-      # paste OSC52 just ignore it.
-      set -as terminal-overrides ',*:Ms=\E]52;c;%p1%s;%p2%s\7'
+      # do nothing. Declare Ms for every outer terminal using the canonical
+      # xterm format `ESC]52;<selection>;<base64>` — do NOT hardcode "c;" in
+      # the middle (produces 4-field `52;c;;<b64>`, which strict terminals
+      # misparse into the wrong selection).
+      set -as terminal-overrides ',*:Ms=\E]52;%p1%s;%p2%s\7'
       # set-clipboard=external (default) only forwards OSC52 from apps INSIDE
       # tmux; with "on" tmux also pushes its own buffer changes (load-buffer
       # -w, i.e. the wl-copy shim) as OSC52 to the attached terminal.
