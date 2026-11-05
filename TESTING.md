@@ -30,45 +30,45 @@ ssh proxcode 'for t in nix tmux git curl pi; do command -v $t || echo "no $t"; d
 ## 1. The one command
 
 ```sh
-bin/code-remote proxcode bootstrap
+bin/code-remote proxcode        # or: just bootstrap proxcode
 ```
 
 What happens, in order:
 
 1. **clone on the host** — `git clone https://github.com/ruben-hutter/code-remote
-   ~/code-remote` (or `git pull --ff-only` if it exists; the manual equivalent:
-   ssh in, clone, `cd code-remote && ./bootstrap`)
-2. **run `remote/bootstrap.sh all` on the host**, which:
+   ~/code-remote` (or `git pull --ff-only` if it exists)
+2. **push data + config from your machine** — pi config files
+   (`settings.json`, `keybindings.json`, `AGENTS.md`, `trust.json`,
+   `models-store.json`), `extensions/` (minus `gondolin/`, `blink1.ts`),
+   `agents/`, `~/.bashrc-personal`, `~/.config/code-remote/passenv` (from
+   `PASS_ENVARS`, resolved locally via pass). Happens BEFORE the bootstrap so
+   `pi update --extensions` reconciles against the current `settings.json`.
+3. **run `remote/bootstrap.sh` on the host** (plain interactive ssh), which:
    - checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
    - installs nix (official installer, sudo for `/nix`)
    - stages `home/remote-user.nix` in the clone (the host's own uid/home —
      staged because a flake in a git tree is sourced from the git index)
-   - moves pre-HM files aside (`*.pre-home-manager`: old `~/.bashrc`,
-     `~/.tmux.conf`, `~/.config/nvim`, `~/.agents/skills`, `~/nixos-config`,
-     …)
    - `nix build ~/code-remote#homeConfigurations.remote.activationPackage`
      (x86_64; `remote-aarch64` on arm; `scripts` + `skills` flake inputs
      fetched from GitHub, pinned by `flake.lock`) and activates →
-     `~/.nix-profile`, XDG configs, store-symlinked nvim/tmux/starship/skills
+     `~/.nix-profile`, XDG configs, store-symlinked nvim/tmux/starship/skills;
+     conflicting pre-HM dotfiles are moved aside as `*.pre-home-manager` by
+     the activation itself (`HOME_MANAGER_BACKUP_EXT`)
    - installs pi + `pi update --extensions` (reconciles declared packages)
-   - installs OSC52/OSC9 shims on headless hosts
    - `nvim --headless "+Lazy! sync"` (pins from the vendored lazy-lock)
-3. **`bin/code-remote proxcode sync`** (once, from your machine) —
-   `~/.bashrc-personal`, pi config files (`settings.json`, `keybindings.json`,
-   `AGENTS.md`, `trust.json`, `models-store.json`), `extensions/` (minus
-   `gondolin/`, `blink1.ts`), `agents/`, `~/.config/code-remote/passenv`
-   (from `PASS_ENVARS`, resolved locally via pass), pi keys resolved into
-   remote `auth.json` (`!pass show …` commands executed locally, literal keys
-   written).
-   **Never synced:** `sessions/`, `install/`, `npm/`, `bin/`, your local
-   `auth.json` (the remote gets resolved keys via the merge above; it keeps
-   its own credentials otherwise, `SYNC_PI_AUTH=1` only seeds an empty one).
-   **Also never synced (owned by the HM generation / flake inputs instead):**
-   `~/scripts`, `~/.agents/skills`, `~/.config/nvim`, `~/.bashrc`,
-   `~/.tmux.conf`, `~/.config/starship.toml`.
+   - enables user linger (tmux ≥ 3.8 spawns panes as systemd user scopes)
+4. **push pi keys from your machine** — `!pass show …` commands in local
+   `auth.json` are executed locally, literal keys merged into the remote's
+   `auth.json` (remote-only credentials preserved; a fresh remote is seeded
+   when `SYNC_PI_AUTH=1`).
+   **Never pushed:** raw local `auth.json` (`!pass` can't work remotely),
+   `sessions/`, `install/`, `npm/`, `bin/`.
+   **Owned by the HM generation / flake inputs instead:** `~/scripts`,
+   `~/.agents/skills`, `~/.config/nvim`, `~/.bashrc`, `~/.tmux.conf`,
+   `~/.config/starship.toml`.
 
-It is idempotent — re-run any time; nix is skipped when present, repos are
-fast-forwarded, HM activation only rewrites what moved.
+It is idempotent — re-run any time; repos fast-forward, nix is skipped when
+present, HM activation only rewrites what moved, keys re-resolve.
 
 ## 2. Verify each layer by hand
 
@@ -105,8 +105,8 @@ nvim --headless '+checkhealth' +qa     # or just open nvim and :checkhealth
 
 Config edits: change the desktop copy in `~/repos/nixos-config` (commit +
 push), then run `bin/vendor` in a code-remote checkout (mirrors nvim + assets
-into `home/`), commit + push, then `bin/code-remote proxcode bootstrap`. `:Lazy update` in the
-remote nvim cannot persist — the store config is read-only.
+into `home/`), commit + push, then `bin/code-remote proxcode`. `:Lazy update`
+in the remote nvim cannot persist — the store config is read-only.
 
 **bash** — HM-generated, with synced data sourced:
 
@@ -158,16 +158,15 @@ bash -ic 'command -v nix'         # ~/.nix-profile/bin/nix
 ## 3. Update paths
 
 ```sh
-bin/code-remote proxcode sync          # data + credentials only (keys rotate, alias changes)
-bin/code-remote proxcode bootstrap     # pull this repo on the host + re-run (also updates scripts/skills inputs)
-# bump tools: nix flake update here, commit + push, then re-run bootstrap
+bin/code-remote proxcode          # re-run: updates the host + re-syncs keys/config
+# bump tools: nix flake update here, commit + push, then re-run
 # bump nvim plugins: update desktop copy in ~/repos/nixos-config (commit+push),
-#   run bin/vendor here (mirrors into home/nvim/), commit + push, re-run bootstrap
+#   run bin/vendor here (mirrors into home/nvim/), commit + push, re-run
 ```
 
 ## Known rough edges (see README Known limits)
 
 - `ssh host <cmd>` non-interactive: PATH = `~/.local/bin` only (HM bashrc
-  interactivity guard); login shells + tmux panes + `connect` are fine.
+  interactivity guard); login shells + tmux panes are fine.
 - SELinux-enforcing hosts may need a nix daemon policy tweak.
 - The nix closure needs ~1–2 GB disk on the remote.

@@ -2,9 +2,9 @@
 
 Provision a **userspace** dev environment on a remote host over plain ssh —
 powered by **nix + home-manager**, no dotfiles maintained on the remote, no
-GitHub keys on the remote. **Remote-driven and self-contained**: the host
-clones exactly **one** repo (this one) and runs the bootstrap there; your
-machine only ever sends credentials.
+GitHub keys on the remote. **Self-contained**: the host clones exactly **one**
+repo (this one) and builds its own environment; your machine only ever sends
+credentials.
 
 Everything declarative lives in this repo's `flake.nix` + `home/`: a headless,
 bash-first home-manager profile. Desktop-shared configs (nvim, starship.toml,
@@ -15,49 +15,58 @@ pinned by `flake.lock`, fetched read-only into the nix store — no clones, no
 submodules).
 
 ```
-usage: bin/code-remote <ssh-alias>                 connect (default command)
-       bin/code-remote <ssh-alias> bootstrap       clone/pull on host + full setup (nix, HM, pi)
-       bin/code-remote <ssh-alias> sync            push data + credentials (pi keys, passenv, aliases)
-       bin/code-remote <ssh-alias> connect [args]  ssh + tmux session picker (or attach)
+usage: bin/code-remote <ssh-alias>    full setup: repo on host + nix/HM/pi + keys
 
-Extra args after the command are forwarded to ssh (e.g. port forwards). The
-legacy order (`bin/code-remote <command> <ssh-alias>`) still works.
+One command. Idempotent — re-run to update the host and re-sync credentials.
+Connect to the machine afterwards with plain ssh or your own tool (pxc).
 ```
+
+`<ssh-alias>` is anything ssh understands — a `user@host` or an alias from
+`~/.ssh/config` (`just bootstrap <alias>` is a wrapper).
 
 `<ssh-alias>` is anything ssh understands — a `user@host` or an alias from
 `~/.ssh/config`.
 
-## The ssh-first flow (no local tooling needed)
+## The flow (one command, from your machine)
 
 ```sh
-ssh myserver                                        # first time, manual
-git clone https://github.com/ruben-hutter/code-remote
-cd code-remote && ./bootstrap                       # ~10 min (nix + closure downloads)
+# one-time: create the VM, then add a Host block to ~/.ssh/config
+bin/code-remote myserver        # ~10 min: nix installer + closure downloads
 ```
 
-That's it. `./bootstrap` (= `remote/bootstrap.sh`):
+That's it. `bin/code-remote` (or `just bootstrap myserver`):
 
-1. checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
-2. installs **nix** (official installer; sudo needed once for `/nix`)
-3. stages your username into `home/remote-user.nix` (per-host identity; staged
-   because a flake in a git tree is sourced from the git index)
-4. moves pre-home-manager files aside (`*.pre-home-manager`) so HM can own
-   `~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim`, …
-5. builds + activates the home-manager generation (`~/.nix-profile`, XDG
-   configs, store-symlinked nvim/tmux/starship; `~/scripts` + `~/.agents/skills`
-   come from the locked `scripts`/`skills` flake inputs)
-6. installs **pi** (official install.sh → `~/.pi/agent/bin`), reconciles declared pi
-   packages, installs OSC52/OSC9 shims on headless hosts, fetches nvim plugins
-   (pinned by the vendored `lazy-lock.json`)
+1. **clones this repo on the host** (`~/code-remote`, public https — or
+   fast-forwards it if it exists) — the flake must physically exist there to
+   build
+2. **pushes your data + config**: pi config files, `extensions/`, `agents/`,
+   `~/.bashrc-personal`, `passenv` (secrets resolved locally from `pass`)
+3. **runs `remote/bootstrap.sh` on the host** (plain ssh, interactive):
+   1. checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
+   2. installs **nix** (official installer; sudo needed once for `/nix`)
+   3. stages your username into `home/remote-user.nix` (per-host identity;
+      staged because a flake in a git tree is sourced from the git index)
+   4. builds + activates the home-manager generation (`~/.nix-profile`, XDG
+      configs, store-symlinked nvim/tmux/starship; `~/scripts` +
+      `~/.agents/skills` come from the locked `scripts`/`skills` flake
+      inputs). Pre-existing dotfiles (`~/.bashrc`, `~/.tmux.conf`,
+      `~/.config/nvim`, …) are moved aside as `*.pre-home-manager` by the
+      activation itself
+   5. installs **pi** (official install.sh → `~/.pi/agent/bin`) and reconciles
+      declared pi packages, fetches nvim plugins (pinned by the vendored
+      `lazy-lock.json`), enables user linger (tmux survives ssh disconnects)
+4. **resolves + pushes pi API keys** (local `!pass show …` commands run on
+   your machine; literal keys land in the remote's `auth.json`)
 
-Then, **from your machine, once**: `bin/code-remote myserver sync` — pushes the
-credentials that can never come from a repo (pi keys resolved from local
-`pass`, `passenv`, personal aliases). Finally `bin/code-remote myserver`
-(connect) or plain `ssh myserver` → tmux, nvim ready.
+Everything declarative lives in this repo's `flake.nix` + `home/` — including
+the OSC52 clipboard shim for headless hosts (`~/.local/bin/wl-copy`, a
+HM-managed `home.file` that defers to the real wl-copy on Wayland sessions).
 
-Updates: `git pull` in `~/code-remote` (or re-run the local `bootstrap`
-one-liner) and re-run `./bootstrap` — nix skips unchanged deps, HM only
-rewrites what moved.
+Updates: re-run `bin/code-remote myserver` — repos fast-forward, nix skips
+unchanged deps, HM only rewrites what moved, keys are re-resolved.
+
+(The host-side script can also be driven by hand — ssh in, `git clone`,
+`bash remote/bootstrap.sh` — useful from a machine without this checkout.)
 
 ## Architecture
 
@@ -72,7 +81,7 @@ github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote (flake + boot
    ├─ github:ruben-hutter/scripts → ~/scripts      (cht.sh, session manager, wtree)
    └─ github:ruben-hutter/skills  → ~/.agents/skills (store symlink)
 
-sync (from your machine, credentials only):
+sync + bootstrap (one command, from your machine):
 ~/.pi/agent config + keys     ───▶ ~/.pi/agent          (keys resolved from pass LOCALLY)
 ~/.config/code-remote/passenv ───▶ ~/.config/code-remote (PASS_ENVARS → plain env file)
 ~/.bashrc-personal            ───▶ ~/.bashrc-personal   (aliases — data, HM sources it)
@@ -81,10 +90,9 @@ then ON the host, bootstrap.sh:
 │
 ├─ nix (official installer, sudo for /nix)
 ├─ nix build ~/code-remote#homeConfigurations.remote...
-├─ generation activate  → ~/.nix-profile + home files
+├─ generation activate  → ~/.nix-profile + home files (conflicts → *.pre-home-manager)
 ├─ pi (pi.dev install.sh → ~/.pi/agent/bin)
-├─ OSC52/OSC9 shims → ~/.local/bin (headless)
-└─ nvim "+Lazy! sync" (pins from vendored lazy-lock)
+└─ nvim "+Lazy! sync" (pins from vendored lazy-lock) + user linger
 ```
 
 The host writes `~/code-remote/home/remote-user.nix` (its own username/home)
@@ -108,10 +116,12 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
 
 All versions come from this repo's `flake.lock` — bump with `nix flake update`
-here, commit the lock, then re-run `./bootstrap` on the host (or the local
-`bootstrap` one-liner).
+here, commit the lock, then re-run `bin/code-remote myserver`.
 
 ## What gets synced (imperative data, from `code-remote.conf`)
+
+Pushed by `bin/code-remote` before the bootstrap runs (re-pushed on every
+run):
 
 - pi config-level files (`settings.json`, `keybindings.json`, `AGENTS.md`,
   `trust.json`, `models-store.json`, `agents/`, `extensions/` — **excluding**
@@ -119,11 +129,11 @@ here, commit the lock, then re-run `./bootstrap` on the host (or the local
   leave the local machine). Declared pi packages (e.g. the catppuccin theme)
   are reconciled on the remote by `pi update --extensions` during bootstrap.
 - pi **API keys**, resolved locally: `auth.json` stores keys as `!pass show …`
-  commands here; at sync time those commands run **on your machine** and the
-  literal keys are merged into the remote's `auth.json` (remote-only
-  credentials, e.g. OAuth logins done there, are preserved). No pass, no gpg
-  on the remote. A remote keeps its own credentials — `auth.json` is only
-  pushed when the remote has none (`SYNC_PI_AUTH=1`).
+  commands here; those commands run **on your machine** and the literal keys
+  are merged into the remote's `auth.json` (remote-only credentials, e.g.
+  OAuth logins done there, are preserved). No pass, no gpg on the remote.
+  `SYNC_PI_AUTH=0` skips seeding a fresh remote; an existing one is always
+  merge-updated.
 - `~/.config/code-remote/passenv` — env vars from `PASS_ENVARS` (resolved via
   local `pass`), sourced by the HM bashrc; for providers that read the
   environment (e.g. `OPENROUTER_API_KEY`).
@@ -136,24 +146,17 @@ last two are plain git clones on the host that the bootstrap script updates.
 
 ## First run
 
-Either the manual ssh-first way (see top) or the local one-liner, which does
-the same thing (clone/pull on the host + run):
-
 ```sh
-bin/code-remote myserver bootstrap   # ~10 min: nix installer + closure downloads
-bin/code-remote myserver sync        # ONCE: pi keys + passenv + aliases (from local pass)
-bin/code-remote myserver             # → tmux session, nvim ready (connect is the default)
+bin/code-remote myserver   # or: just bootstrap myserver — that's the whole flow
 ```
 
-Bootstrap is idempotent — re-run anytime (nix is skipped if present, HM
-activation only rewrites what moved). Credential `sync` is needed once per
-host (and whenever keys rotate).
+Bootstrap is idempotent — re-run any time (repos fast-forward, nix is skipped
+if present, HM activation only rewrites what moved, keys re-resolve).
 
-**Existing pre-home-manager remotes:** bootstrap moves the old `~/.bashrc`,
-`~/.tmux.conf`, `~/.config/nvim`, `~/.config/starship.toml`,
-`~/.config/nix/nix.conf`, `~/.profile*` aside as `*.pre-home-manager` and
-clears v1 leftovers (pinned binaries in `~/.local/bin`, tpm plugin clones)
-before activating — the HM generation then owns everything.
+**Existing pre-home-manager remotes:** the HM activation moves old
+`~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim`, `~/.config/starship.toml`,
+`~/.config/nix/nix.conf` aside as `*.pre-home-manager` (it would otherwise
+abort on them) — the HM generation then owns everything.
 
 ## Known limits
 
@@ -165,24 +168,25 @@ before activating — the HM generation then owns everything.
 - **Non-interactive ssh** (`ssh host <cmd>`): the HM bashrc has an
   interactivity guard, so PATH comes from `.profile` — login shells and tmux
   panes are fine, but a bare non-login command only sees `~/.local/bin`.
-  `code-remote connect` exports the full PATH explicitly.
+  Connect with plain ssh (interactive login) or your own tool.
 - Disk: the nix closure is ~1–2 GB — fine for normal VMs, tight below
   ~5 GB disks.
 - **nvim plugin updates** on remotes: update locally (`:Lazy update`), copy
   the lock into the nixos-config desktop repo (commit), then in THIS repo run
-  `bin/vendor` (mirrors nvim + assets), commit + push, and re-run `./bootstrap`
-  on the host. `:Lazy update` inside the remote nvim cannot persist (store
-  config is read-only by design).
+  `bin/vendor` (mirrors nvim + assets), commit + push, and re-run
+  `bin/code-remote myserver`. `:Lazy update` inside the remote nvim cannot
+  persist (store config is read-only by design).
 - First `nvim` launch / bootstrap may still fetch a few Mason LSP servers
   lazily (nodejs/gcc from the HM profile cover their build needs).
 - **Clipboard**: tmux copy-mode `y` (and mouse drag) reaches your local
-  clipboard on headless hosts via an OSC52 shim: bootstrap installs
-  `~/.local/bin/wl-copy` when no real clipboard tool exists, and tmux pipes
-  copies through it (`tmux load-buffer -w`), which forwards the buffer to your
-  terminal as OSC52 (needs an OSC52-capable terminal; `Ms` override +
-  `set-clipboard on` are configured in the remote tmux config). nvim's own
-  `y`/`yy` stays inside the remote nvim unless you add an OSC52 clipboard
-  provider to the nvim config.
+  clipboard on headless hosts via the OSC52 shim — a HM-managed
+  `~/.local/bin/wl-copy` (declared in the flake; on a real Wayland session it
+  defers to the real wl-copy) — and tmux pipes copies through it
+  (`tmux load-buffer -w`), which forwards the buffer to your terminal as
+  OSC52 (needs an OSC52-capable terminal; `Ms` override + `set-clipboard on`
+  are configured in the remote tmux config). nvim's own `y`/`yy` stays inside
+  the remote nvim unless you add an OSC52 clipboard provider to the nvim
+  config.
 - **API keys live on remotes in plaintext** (by design): resolved from your
   local pass at sync time and written into the remote's `auth.json` +
   `~/.config/code-remote/passenv`. Fine for your own VMs — skip syncing to a
