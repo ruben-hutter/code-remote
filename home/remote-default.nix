@@ -140,9 +140,6 @@ in
       grep = "grep --color=auto";
       clera = "clear";
       nv = "nvim";
-
-      # Scripts (desktop ports — same name as the fish shellAliases on the laptop)
-      tm = "$HOME/scripts/tmux_session_manager.sh";
     };
 
     initExtra = ''
@@ -158,6 +155,17 @@ in
 
       # Personal aliases, pushed by bin/code-remote (data, not logic — outside HM)
       [ -r "$HOME/.bashrc-personal" ] && . "$HOME/.bashrc-personal"
+
+      # tm — tmux session picker, no-op inside tmux (same as the fish `tm` on
+      # the laptop). Defined as a function, not a shellAlias, so the guard is
+      # part of the name.
+      tm() { [ -n "''${TMUX:-}" ] || "$HOME/scripts/tmux_session_manager.sh" "$@"; }
+
+      # Drop new plain shells (ssh logins) straight into the tmux session
+      # picker — inside tmux `tm` is a no-op, so tmux panes/windows are
+      # unaffected. bashrc only loads for interactive shells (HM guard), so
+      # `ssh host cmd` never triggers this.
+      tm
     '';
   };
 
