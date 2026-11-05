@@ -5,7 +5,7 @@
 # manually: ssh in, cd ~/code-remote, bash remote/bootstrap.sh).
 #
 # Everything declarative lives in THIS repo: flake.nix + home/ define a
-# headless, bash-first home-manager profile (nvim with vendored config,
+# headless, bash-first home-manager profile (nvim from the nixos-config input,
 # tmux with OSC52 yank, starship, fzf, direnv + flakes, lean tool set).
 # ~/scripts and ~/.agents/skills come from flake inputs (public, locked).
 # This script is the thin imperative residue nix cannot express:
@@ -15,7 +15,7 @@
 #   3. nix build + activate the home-manager generation (conflicting
 #      pre-HM dotfiles are moved to *.pre-home-manager by activation)
 #   4. pi (official install.sh; not in nixpkgs) + pi extension reconcile
-#   5. nvim plugin fetch (lazy sync; versions pinned by vendored lazy-lock)
+#   5. nvim plugin fetch (lazy sync; versions pinned by the desktop lazy-lock)
 #   6. enable user linger (tmux survives ssh disconnects)
 set -euo pipefail
 
@@ -187,7 +187,7 @@ install_pi() {
     || warn "pi package reconcile failed (run manually: pi update --extensions)"
 }
 
-# --- nvim plugins (versions pinned by the vendored lazy-lock.json) ------------
+# --- nvim plugins (versions pinned by the desktop lazy-lock.json) ------------
 nvim_lazy_sync() {
   have nvim || { warn "nvim not on PATH — skipping lazy sync"; return 0; }
   if nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1; then

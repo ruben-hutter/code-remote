@@ -56,7 +56,7 @@ What happens, in order:
      conflicting pre-HM dotfiles are moved aside as `*.pre-home-manager` by
      the activation itself (`HOME_MANAGER_BACKUP_EXT`)
    - installs pi + `pi update --extensions` (reconciles declared packages)
-   - `nvim --headless "+Lazy! sync"` (pins from the vendored lazy-lock)
+   - `nvim --headless "+Lazy! sync"` (pins from the desktop lazy-lock)
    - enables user linger (tmux ≥ 3.8 spawns panes as systemd user scopes)
 4. **push pi keys from your machine** — `!pass show …` commands in local
    `auth.json` are executed locally, literal keys merged into the remote's
@@ -105,9 +105,10 @@ nvim --headless '+checkhealth' +qa     # or just open nvim and :checkhealth
 ```
 
 Config edits: change the desktop copy in `~/repos/nixos-config` (commit +
-push), then run `bin/vendor` in a code-remote checkout (mirrors nvim + assets
-into `home/`), commit + push, then `bin/code-remote proxcode`. `:Lazy update`
-in the remote nvim cannot persist — the store config is read-only.
+push), then in this repo run `nix flake update nixos-config` (pins the new
+state in `flake.lock`), commit + push, then `bin/code-remote proxcode`.
+`:Lazy update` in the remote nvim cannot persist — the store config is
+read-only.
 
 **bash** — HM-generated, with synced data sourced:
 
@@ -160,8 +161,8 @@ bash -ic 'command -v nix'         # ~/.nix-profile/bin/nix
 ```sh
 bin/code-remote proxcode          # re-run: updates the host + re-syncs keys/config
 # bump tools: nix flake update here, commit + push, then re-run
-# bump nvim plugins: update desktop copy in ~/repos/nixos-config (commit+push),
-#   run bin/vendor here (mirrors into home/nvim/), commit + push, re-run
+# bump nvim/desktop configs: update in ~/repos/nixos-config (commit+push),
+#   then here: nix flake update nixos-config, commit flake.lock, re-run
 ```
 
 ## Known rough edges (see README Known limits)

@@ -8,11 +8,12 @@ credentials.
 
 Everything declarative lives in this repo's `flake.nix` + `home/`: a headless,
 bash-first home-manager profile. Desktop-shared configs (nvim, starship.toml,
-lf/btop/htop) are **vendored** into `home/` from the
-[`nixos-config`](https://github.com/ruben-hutter/nixos-config) desktop repo via
-`bin/vendor`; scripts and agent skills come from **flake inputs** (public,
-pinned by `flake.lock`, fetched read-only into the nix store — no clones, no
-submodules).
+lf/btop/htop) come from the
+[`nixos-config`](https://github.com/ruben-hutter/nixos-config) desktop repo as
+a **flake input** — one canonical copy, no duplication, pinned by
+`flake.lock` (bump with `nix flake update nixos-config`); scripts and agent
+skills are flake inputs the same way (public, fetched read-only into the nix
+store — no clones, no submodules).
 
 ```
 usage: bin/code-remote <ssh-alias>    full setup: repo on host + nix/HM/pi + keys
@@ -54,7 +55,7 @@ That's it. `bin/code-remote` (or `just bootstrap myserver`):
       `~/.config/nvim`, …) are moved aside as `*.pre-home-manager` by the
       activation itself
    5. installs **pi** (official install.sh → `~/.pi/agent/bin`) and reconciles
-      declared pi packages, fetches nvim plugins (pinned by the vendored
+      declared pi packages, fetches nvim plugins (pinned by the desktop
       `lazy-lock.json`), enables user linger (tmux survives ssh disconnects)
 4. **resolves + pushes pi API keys** (local `!pass show …` commands run on
    your machine; literal keys land in the remote's `auth.json`)
@@ -74,11 +75,12 @@ unchanged deps, HM only rewrites what moved, keys are re-resolved.
 ```
 local machine                     remote host (one git clone: this repo)
 ─────────────                     ───────────
-github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote (flake + bootstrap + vendored configs)
+github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote (flake + bootstrap)
 
    its flake inputs (public, pinned by flake.lock, fetched into the nix store —
    no clones, no submodules):
    ├─ github:NixOS/nixpkgs + home-manager          → the HM generation
+   ├─ github:ruben-hutter/nixos-config             → nvim + starship/lf/btop/htop configs
    ├─ github:ruben-hutter/scripts → ~/scripts      (cht.sh, session manager, wtree)
    └─ github:ruben-hutter/skills  → ~/.agents/skills (store symlink)
 
@@ -92,14 +94,15 @@ then ON the host, bootstrap.sh:
 ├─ nix build ~/code-remote#homeConfigurations.remote...
 ├─ generation activate  → ~/.nix-profile + home files (conflicts → *.pre-home-manager)
 ├─ pi (pi.dev install.sh → ~/.pi/agent/bin)
-└─ nvim "+Lazy! sync" (pins from vendored lazy-lock) + user linger
+└─ nvim "+Lazy! sync" (pins from the desktop lazy-lock) + user linger
 ```
 
 The host writes `~/code-remote/home/remote-user.nix` (its own username/home)
 before activation and stages it — a flake in a git tree is sourced from the
-git index, so an untracked file would be invisible to nix. Vendored configs
-(`home/nvim/`, `home/assets/`) are mirrored from the nixos-config desktop repo
-by `bin/vendor` — the desktop checkout stays the canonical place to edit them.
+git index, so an untracked file would be invisible to nix. The shared
+desktop configs (nvim, starship.toml, lfrc, btop/htop) come from the
+nixos-config flake input — the desktop repo stays the only place to edit
+them; pin a newer state with `nix flake update nixos-config` here.
 
 ## What the remote gets (declarative, from the flake)
 
@@ -108,7 +111,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 
 | Area | What |
 |---|---|
-| nvim | your full config, vendored in this repo (`home/nvim/`), store-symlinked; plugins pinned by the vendored `lazy-lock.json` |
+| nvim | your full config, from the nixos-config flake input, store-symlinked; plugins pinned by its `lazy-lock.json` |
 | tmux | bash panes, C-a prefix, vi mode, catppuccin, yank (OSC52 on headless), resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
 | shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` sourced |
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
@@ -170,9 +173,9 @@ abort on them) — the HM generation then owns everything.
   Connect with plain ssh (interactive login) or your own tool.
 - Disk: the nix closure is ~1–2 GB — fine for normal VMs, tight below
   ~5 GB disks.
-- **nvim plugin updates** on remotes: update locally (`:Lazy update`), copy
-  the lock into the nixos-config desktop repo (commit), then in THIS repo run
-  `bin/vendor` (mirrors nvim + assets), commit + push, and re-run
+- **nvim plugin updates** on remotes: update locally (`:Lazy update`), commit
+  the lock in the nixos-config desktop repo (push), then in THIS repo run
+  `nix flake update nixos-config`, commit the lock, and re-run
   `bin/code-remote myserver`. `:Lazy update` inside the remote nvim cannot
   persist (store config is read-only by design).
 - First `nvim` launch / bootstrap may still fetch a few Mason LSP servers

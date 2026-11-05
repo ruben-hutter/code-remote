@@ -20,17 +20,25 @@
       url = "github:ruben-hutter/skills";
       flake = false;
     };
+
+    # shared desktop configs (nvim, starship.toml, lfrc, btop/htop) — one
+    # canonical copy lives in the nixos-config repo; fetched and pinned here
+    # by flake.lock (bump with `nix flake update nixos-config`)
+    nixos-config = {
+      url = "github:ruben-hutter/nixos-config";
+      flake = false;
+    };
   };
 
   outputs =
-    { self, nixpkgs, home-manager, scripts, skills }:
+    { self, nixpkgs, home-manager, scripts, skills, nixos-config }:
     let
       # The declarative remote environment: headless, bash-first, nvim/tmux/
-      # starship/direnv/flakes + lean tool set. Vendored configs live in ./home
-      # (nvim/, assets/) — sync them from the desktop with ./bin/vendor.
+      # starship/direnv/flakes + lean tool set. Shared desktop configs come
+      # from the nixos-config flake input (pinned by flake.lock).
       mkRemoteHome = system: home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.${system};
-        extraSpecialArgs = { inherit scripts skills; };
+        extraSpecialArgs = { inherit scripts skills nixos-config; };
         modules = [ ./home/remote-default.nix ];
       };
     in

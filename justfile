@@ -6,7 +6,3 @@ default:
 # (idempotent — re-run to update the host and re-sync keys)
 bootstrap host:
     bin/code-remote {{host}}
-
-# re-vendor desktop configs from nixos-config into home/
-vendor src="~/repos/nixos-config/master":
-    bin/vendor {{src}}

@@ -1,7 +1,8 @@
 # Declarative remote environment for NON-NixOS coding VMs, provisioned by
 # this repo's bootstrap. Self-contained: no dependency on the nixos-config
-# repo — shared configs (nvim, starship.toml, lfrc, btop/htop) are vendored
-# into ./home (sync from the desktop checkout with ./bin/vendor).
+# repo — shared configs (nvim, starship.toml, lfrc, btop/htop) come from the
+# nixos-config flake input, pinned by flake.lock (one canonical copy, no
+# duplication; bump with `nix flake update nixos-config`).
 #
 # Headless and bash-first (no fish on remotes). Host identity (username/
 # homeDirectory) comes from home/remote-user.nix, written by the bootstrap
@@ -16,6 +17,7 @@
   # flake inputs, passed via extraSpecialArgs from flake.nix
   scripts,
   skills,
+  nixos-config,
   ...
 }:
 
@@ -65,23 +67,23 @@ in
     ];
   };
 
-  # === NVIM — full config vendored in ./nvim, store-symlinked; plugins are
-  # resolved at runtime by lazy.nvim, pinned by the vendored lazy-lock.json.
+  # === NVIM — full config from the nixos-config flake input, store-symlinked;
+  # plugins are resolved at runtime by lazy.nvim, pinned by its lazy-lock.json.
   programs.neovim.enable = true;
   # headless remotes: no embedded interpreters (also silences the nixpkgs
   # eval warnings about these defaults having flipped)
   programs.neovim.withRuby = false;
   programs.neovim.withPython3 = false;
 
-  # Runtime deps for the vendored config:
+  # Runtime deps for the shared config:
   # - gcc: nvim-treesitter compiles parsers; mason builds some LSP servers
   # - unzip: mason package installs
   # - wl-clipboard: nvim clipboard registers (headless remotes use the OSC52
   #   shim for tmux yank; inside nvim it just stays a no-op binary)
   # === HM-MANAGED FILES (one home.file definition — same-module duplicates are
   # a module-system error) ===
-  # nvim: full config vendored in ./nvim, store-symlinked; plugins resolved at
-  # runtime by lazy.nvim, pinned by the vendored lazy-lock.json.
+  # nvim: full config from the nixos-config input, store-symlinked; plugins
+  # resolved at runtime by lazy.nvim, pinned by its lazy-lock.json.
   # ~/scripts: flat executables from the scripts flake input (cht.sh, tmux
   # session manager, wtree, ...). The walrus hook script is installed too but
   # NOT wired anywhere — remotes have no pass/walrus.
@@ -95,8 +97,8 @@ in
   # Wayland session defer to the real wl-copy (checked in the profile dir,
   # NOT via PATH — that would recurse onto this shim), else feed tmux.
   home.file = {
-    ".config/nvim".source = ./nvim;
-    ".config/starship.toml".source = ./assets/starship.toml;
+    ".config/nvim".source = nixos-config + "/home/programs/nvim";
+    ".config/starship.toml".source = nixos-config + "/home/programs/assets/starship.toml";
     ".agents/skills".source = "${skills}/skills";
     ".local/bin/wl-copy" = {
       text = ''
@@ -312,7 +314,7 @@ in
 
   # === FILE-MANAGER + SYSTEM MONITORS (desktop parity, small configs) ===
   programs.lf.enable = true;
-  programs.lf.extraConfig = builtins.readFile ./assets/lfrc;
+  programs.lf.extraConfig = builtins.readFile (nixos-config + "/home/programs/assets/lfrc");
   programs.bat.enable = true;
   programs.bat.config.theme = "Catppuccin Mocha";
   programs.lazygit = {
@@ -324,13 +326,14 @@ in
   };
 
   # btop/htop rewrite their configs on every in-TUI change, so the files are
-  # seeded from the vendored versions and then owned by the tools.
+  # seeded from the shared versions (nixos-config input) and then owned by
+  # the tools.
   programs.btop.enable = true;
   home.activation.btopConfigSeed = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     CONFIG="$HOME/.config/btop/btop.conf"
     if [ ! -f "$CONFIG" ]; then
       $DRY_RUN_CMD mkdir -p "$HOME/.config/btop"
-      $DRY_RUN_CMD install -m 644 ${./assets/btop.conf} "$CONFIG"
+      $DRY_RUN_CMD install -m 644 ${nixos-config + "/home/programs/assets/btop.conf"} "$CONFIG"
     fi
   '';
 
@@ -338,7 +341,7 @@ in
     RC="$HOME/.config/htop/htoprc"
     if [ ! -f "$RC" ]; then
       $DRY_RUN_CMD mkdir -p "$HOME/.config/htop"
-      $DRY_RUN_CMD install -m 644 ${./assets/htoprc} "$RC"
+      $DRY_RUN_CMD install -m 644 ${nixos-config + "/home/programs/assets/htoprc"} "$RC"
     fi
   '';
 
