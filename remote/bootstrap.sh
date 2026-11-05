@@ -10,6 +10,9 @@
 # ~/scripts and ~/.agents/skills come from flake inputs (public, locked).
 # This script is the thin imperative residue nix cannot express:
 #
+#   0. seed git identity (~/.config/git/config — the file HM will own; commits
+#      before the first HM activation would otherwise be authored by git's
+#      fallback identity, e.g. "Ubuntu <user@host>")
 #   1. ensure base tools (git, curl, tar, unzip; apt — Debian/Ubuntu only)
 #   2. install nix (official installer — sudo, multi-user daemon; needs systemd)
 #   3. nix build + activate the home-manager generation (conflicting
@@ -62,6 +65,25 @@ stage_remote_user() {
     > "$REPO_ROOT/home/remote-user.nix"
   git -C "$REPO_ROOT" add -f home/remote-user.nix
   ok "host identity staged ($(id -un) @ $HOME)"
+}
+
+# --- git identity (pre-HM) ----------------------------------------------------
+# home/remote-default.nix (programs.git) puts the same identity into
+# ~/.config/git/config — but only at the FIRST home-manager activation,
+# ~10 min into a fresh bootstrap (nix install + closure downloads). Commits
+# made before that (agent session during the build, manual work on a
+# brand-new VM) get git's fallback identity: "Ubuntu <user@host>". Seed the
+# exact file HM will take over — activation replaces it (the pre-existing
+# copy is moved to *.pre-home-manager, see HOME_MANAGER_BACKUP_EXT below).
+# Keep name/email in sync with home/remote-default.nix (programs.git).
+GIT_NAME="Ruben Hutter"
+GIT_EMAIL="ruben.hutter@rubenhutter.ch"
+seed_git_identity() {
+  local cfg="$HOME/.config/git/config"
+  [ -f "$cfg" ] && return 0 # exists (HM-managed or user-provided) — leave it
+  mkdir -p "$(dirname "$cfg")"
+  printf '[user]\n\tname = %s\n\temail = %s\n' "$GIT_NAME" "$GIT_EMAIL" > "$cfg"
+  ok "git identity seeded ($GIT_NAME <$GIT_EMAIL>)"
 }
 
 # --- base prerequisites (the sudo-ish part) ----------------------------------
@@ -259,6 +281,7 @@ EOF
 }
 
 # --- main ---------------------------------------------------------------------
+seed_git_identity # before the long steps: closes the no-identity window
 ensure_base
 install_nix
 stage_remote_user
