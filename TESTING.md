@@ -155,13 +155,6 @@ cd ~/some-flake-repo && echo 'use flake' > .envrc && direnv allow   # dev shell 
 bash -ic 'command -v nix'         # ~/.nix-profile/bin/nix
 ```
 
-**migrated v1 remote?** Also check the setaside files survived:
-
-```sh
-ls ~/.bashrc.pre-home-manager ~/.tmux.conf.pre-home-manager 2>/dev/null   # old configs
-ls ~/.config/tmux/plugins 2>/dev/null                                     # gone (tpm removed)
-```
-
 ## 3. Update paths
 
 ```sh
@@ -170,7 +163,6 @@ bin/code-remote proxcode bootstrap     # pull this repo on the host + re-run (al
 # bump tools: nix flake update here, commit + push, then re-run bootstrap
 # bump nvim plugins: update desktop copy in ~/repos/nixos-config (commit+push),
 #   run bin/vendor here (mirrors into home/nvim/), commit + push, re-run bootstrap
-# v1 bash flow (escape hatch): bin/code-remote proxcode bootstrap-legacy
 ```
 
 ## Known rough edges (see README Known limits)

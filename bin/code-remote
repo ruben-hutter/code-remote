@@ -11,7 +11,6 @@
 #   code-remote <ssh-alias> bootstrap        full setup: nix + home-manager + pi
 #   code-remote <ssh-alias> sync             re-push configs, re-run home-manager
 #   code-remote <ssh-alias> connect [args]   ssh + tmux session manager (or attach)
-#   code-remote <ssh-alias> bootstrap-legacy pre-home-manager bash bootstrap (v1)
 #   extra args after the command are passed through to ssh
 #   legacy order (code-remote <command> <ssh-alias>) still accepted
 set -euo pipefail
@@ -26,7 +25,6 @@ usage: code-remote <ssh-alias>                 connect (default command)
        code-remote <ssh-alias> bootstrap       clone/pull repo on host + full setup (nix, home-manager, pi)
        code-remote <ssh-alias> sync            push data + credentials (pi keys, passenv, aliases)
        code-remote <ssh-alias> connect [args]  ssh + tmux session picker (or attach)
-       code-remote <ssh-alias> bootstrap-legacy  v1 bash bootstrap (pre-home-manager)
 
   bootstrap is remote-driven: the host clones https://github.com/ruben-hutter/code-remote
   and runs it; this command is the one-liner version. Run 'sync' once after
@@ -37,7 +35,7 @@ EOF
   exit 1
 }
 
-is_cmd() { case " bootstrap sync connect bootstrap-legacy " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+is_cmd() { case " bootstrap sync connect " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 [ $# -ge 1 ] || usage
 CMD="connect"
@@ -54,18 +52,6 @@ EXTRA=()
 rc() { ssh ${EXTRA[@]+"${EXTRA[@]}"} "$@"; }
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-
-# nvim: Lazy! sync can drift from lazy-lock.json when upstream force-pushes
-# (pinned commits unreachable from a fresh clone). Re-push the local lock and
-# restore the exact pins. LEGACY ONLY: with home-manager the remote nvim config
-# is a read-only store symlink whose lazy-lock.json is vendored in the
-# nixos-config repo — bump it there instead.
-pin_nvim_lock() {
-  [ -f "$NVIM_CONFIG_DIR/lazy-lock.json" ] || return 0
-  rsync -az "$NVIM_CONFIG_DIR/lazy-lock.json" "$HOST:.config/nvim/lazy-lock.json"
-  rc "$HOST" 'export PATH="$HOME/.local/bin:$PATH"; command -v nvim >/dev/null 2>&1 && nvim --headless "+Lazy! restore" "+qa" >/dev/null 2>&1 || true'
-  info "nvim plugins pinned to lazy-lock.json"
-}
 
 # pi keys: auth.json stores them as "!command" values (they call `pass` locally,
 # which does not exist on remotes). Build a resolved copy in PI_AUTH_RESOLVED:
@@ -164,47 +150,6 @@ push_data_configs() {
   fi
 }
 
-push_configs() {
-  # LEGACY (v1 bash bootstrap): pushes raw configs the old script transforms
-  # on the remote. The home-manager flow uses push_data_configs instead —
-  # nvim/tmux/bashrc/starship/scripts are owned by the HM generation there.
-  local r="$HOST"
-
-  rc "$r" 'mkdir -p ~/.config/tmux/plugins ~/.pi/agent ~/.config ~/.agents ~/scripts'
-
-  info "rsyncing configs to $r"
-  rsync -az --delete "$NVIM_CONFIG_DIR/" "$r:.config/nvim/"
-  rsync -az "$HOME/.tmux.conf" "$r:.tmux.conf"
-  rsync -az --delete "$HOME/.config/tmux/plugins/" "$r:.config/tmux/plugins/"
-
-  # bash: interactive shell config + aliases (.bashrc-personal is sourced by
-  # .bashrc). bootstrap-legacy.sh strips local-only bits and adds managed blocks.
-  if [ -f "$HOME/.bashrc" ]; then
-    rsync -az "$HOME/.bashrc" "$r:.bashrc"
-  fi
-
-  if [ -f "$HOME/.config/starship.toml" ]; then
-    rsync -az "$HOME/.config/starship.toml" "$r:.config/"
-  fi
-
-  # skills: local symlink farm -> dereferenced real files (legacy only —
-  # the v2 flow clones the public skills repo on the host instead)
-  if [ -d "$SKILLS_DIR" ]; then
-    rsync -azL --delete "$SKILLS_DIR/" "$r:.agents/skills/"
-  fi
-
-  # helper scripts the remote actually uses (tmux session picker, wtree) —
-  # legacy only: the HM profile installs ~/scripts from the scripts flake input
-  local s
-  for s in "${REMOTE_SCRIPTS[@]}"; do
-    if [ -e "$SCRIPTS_DIR/$s" ]; then
-      rsync -az "$SCRIPTS_DIR/$s" "$r:scripts/"
-    fi
-  done
-
-  push_data_configs
-}
-
 case "$CMD" in
   bootstrap)
     # Remote-driven bootstrap: the host clones/pulls this repo and runs the
@@ -225,17 +170,6 @@ case "$CMD" in
     # skills); update them with bin/code-remote <host> bootstrap or manually.
     push_data_configs
     info "done"
-    ;;
-  bootstrap-legacy)
-    # v1 bash bootstrap: raw config push + transforms on the remote
-    push_configs
-    info "uploading bootstrap script"
-    rc "$HOST" 'mkdir -p ~/.code-remote'
-    rsync -az --delete "$DIR/remote/" "$HOST:.code-remote/"
-    info "running legacy bootstrap on $HOST (tools + configs)"
-    rc -t "$HOST" 'bash ~/.code-remote/bootstrap-legacy.sh all'
-    pin_nvim_lock
-    info "done — connect with: code-remote connect $HOST"
     ;;
   connect)
     # PATH set explicitly: the ssh command runs a non-interactive shell that

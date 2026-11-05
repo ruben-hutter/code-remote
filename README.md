@@ -19,7 +19,6 @@ usage: bin/code-remote <ssh-alias>                 connect (default command)
        bin/code-remote <ssh-alias> bootstrap       clone/pull on host + full setup (nix, HM, pi)
        bin/code-remote <ssh-alias> sync            push data + credentials (pi keys, passenv, aliases)
        bin/code-remote <ssh-alias> connect [args]  ssh + tmux session picker (or attach)
-       bin/code-remote <ssh-alias> bootstrap-legacy  v1 bash bootstrap (pre-home-manager)
 
 Extra args after the command are forwarded to ssh (e.g. port forwards). The
 legacy order (`bin/code-remote <command> <ssh-alias>`) still works.
@@ -150,12 +149,11 @@ Bootstrap is idempotent — re-run anytime (nix is skipped if present, HM
 activation only rewrites what moved). Credential `sync` is needed once per
 host (and whenever keys rotate).
 
-**Migrating an existing v1 remote:** bootstrap moves the old `~/.bashrc`,
+**Existing pre-home-manager remotes:** bootstrap moves the old `~/.bashrc`,
 `~/.tmux.conf`, `~/.config/nvim`, `~/.config/starship.toml`,
-`~/.config/nix/nix.conf`, `~/.profile*` aside as `*.pre-home-manager`, removes
-the v1 pinned binaries from `~/.local/bin` and the tpm plugin clones. Escape
-hatch: `bootstrap-legacy` restores the v1 flow (old script kept as
-`remote/bootstrap-legacy.sh`).
+`~/.config/nix/nix.conf`, `~/.profile*` aside as `*.pre-home-manager` and
+clears v1 leftovers (pinned binaries in `~/.local/bin`, tpm plugin clones)
+before activating — the HM generation then owns everything.
 
 ## Known limits
 
@@ -167,10 +165,9 @@ hatch: `bootstrap-legacy` restores the v1 flow (old script kept as
 - **Non-interactive ssh** (`ssh host <cmd>`): the HM bashrc has an
   interactivity guard, so PATH comes from `.profile` — login shells and tmux
   panes are fine, but a bare non-login command only sees `~/.local/bin`.
-  `code-remote connect` exports the full PATH explicitly. This is the one v1
-  regression (v1 put a PATH block above the guard).
-- Disk: the nix closure is ~1–2 GB (vs ~200 MB for v1's static binaries) —
-  fine for normal VMs, tight below ~5 GB disks.
+  `code-remote connect` exports the full PATH explicitly.
+- Disk: the nix closure is ~1–2 GB — fine for normal VMs, tight below
+  ~5 GB disks.
 - **nvim plugin updates** on remotes: update locally (`:Lazy update`), copy
   the lock into the nixos-config desktop repo (commit), then in THIS repo run
   `bin/vendor` (mirrors nvim + assets), commit + push, and re-run `./bootstrap`

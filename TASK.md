@@ -2,8 +2,9 @@
 
 **Status: DONE (2026-11-05).** Full v2 bootstrap e2e-verified on a fresh Ubuntu 24.04 VM
 (`code-remote-test`, x86_64). All TESTING.md §2 checks pass incl. manual OSC52 yank
-paste on Ruben's terminal. 10 fix commits on main; findings log below. Still open:
-v1→v2 migration path test (step 2/7, skipped by design for a plain v2 run).
+paste on Ruben's terminal. 10 fix commits on main; findings log below. Follow-up (same day): v1/legacy
+bootstrap removed entirely (bootstrap-legacy.sh, push_configs, pin_nvim_lock,
+conf vars) — migration path moot; notify-send extension excluded from sync.
 
 ## Mission
 
