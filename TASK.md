@@ -120,3 +120,16 @@ from this repo (build only — NEVER activate on the local machine).
 ## Findings log
 
 (work in progress — agent fills this during the run)
+
+All fixed and verified end-to-end on a fresh Ubuntu 24.04 VM (2026-11-05):
+
+- bootstrap aborted before nvim lazy sync → fresh VMs have no `~/.local/bin`; `install` of shims failed under `set -e` → `mkdir -p "$BIN"` in both shim functions (c7cccdf)
+- `pi update --extensions` failed right after install + pi unusable in shells → pi's managed installer moved to `~/.pi/agent/bin`, which was on no PATH → exported in `install_pi`, added to script PATH loop, sessionVariables.PATH and tmux PATH env (c7cccdf)
+- wl-copy shim skipped on headless host → HM profile ships real wl-clipboard, so `have wl-copy && return 0` misfired → skip only when `WAYLAND_DISPLAY` is set (c7cccdf)
+- first sync left raw `!pass` keys in remote auth.json (unusable — no pass on remotes) → seeding path pushed the raw file because `sync_pi_keys` bails when the remote has none → resolve first, seed resolved (7f23bcd)
+- tmux panes / interactive non-login shells had no `~/.local/bin` + `~/.pi/agent/bin` on PATH (hm-session-vars.sh only reachable via `~/.profile`) → shims shadowed by profile wl-copy, pi missing → source `hm-session-vars.sh` at top of bash initExtra (b9ee456)
+- sessionPath prepended nix-profile AFTER sessionVariables.PATH → real wl-copy ahead of the shim in interactive shells/panes → replaced with one explicit sessionVariables.PATH order: local/bin, pi/agent/bin, nix-profile/bin, system (1e36f53)
+- tmux yank: `load-buffer -w` emitted no OSC52 → tmux only sends it when the outer terminal advertises Ms (stock terminfo doesn't) and `set-clipboard` defaults to external (only forwards app-internal OSC52) → `terminal-overrides ',*:Ms=…'` + `set -s set-clipboard on` (f997d3d, 18363ab). Verified with an attached pty client: outer terminal receives `\e]52;c;;<base64>` (NOTE for future tests: grep `52;c;;` — double semicolon, empty selection param — a `52;c;<b64>` grep gives false negatives)
+- tmux notifications: notify-send shim's DCS-wrapped OSC 9/777 were dropped → `allow-passthrough` off by default → `set -g allow-passthrough on` (f997d3d). Verified: escape reaches outer terminal
+- cosmetic, by design: "Git tree is dirty" nix-build warning (staged `home/remote-user.nix`), useradd SYS_UID_MAX warnings from the nix installer, HM eval warnings about neovim withRuby/withPython3 defaults (now pinned)
+- process note: a debug strace wrapper was briefly set as the VM's login shell with broken quoting, killing all ssh access (fixed via console: `usermod -s /bin/bash device-admin`). Lesson: never mutate login shells for tracing — strace inline commands instead

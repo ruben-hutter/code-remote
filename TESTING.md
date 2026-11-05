@@ -128,8 +128,14 @@ ls ~/scripts/tmux_session_manager.sh       # from the scripts flake input (pinne
 ```
 
 Clipboard + notifications (inside the tmux session): `C-a [`, select, `y`,
-paste on your **local** machine (OSC52 shim → terminal). `notify-send test`
-→ tmux status line + OSC 9/777, never a crash.
+paste on your **local** machine. The chain is shim → `tmux load-buffer -w` →
+tmux sends OSC52 to your terminal (`terminal-overrides Ms` + `set-clipboard on`
+are configured). To verify remotely without a human terminal, attach with a pty
+(`script -qec "TERM=xterm-256color tmux attach"`) and grep the capture for
+`52;c;;` (double semicolon — tmux emits an empty selection param; grepping
+`52;c;<b64>` gives false negatives). `notify-send test`
+→ tmux status line + OSC 9/777 (needs `allow-passthrough on`, configured),
+never a crash. If paste still fails, it's your LOCAL terminal dropping OSC52.
 
 **pi** — binaries, config, packages, credentials:
 
