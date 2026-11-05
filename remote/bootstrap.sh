@@ -141,6 +141,19 @@ install_nix() {
   export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
 }
 
+# --- keep tmux servers alive across ssh disconnects ---------------------------
+# tmux >= 3.8 spawns panes as systemd user scopes; when the ssh session that
+# started the server closes and the user manager stops (no linger), detached
+# servers and their sessions are killed — detaching would lose everything.
+enable_linger() {
+  loginctl show-user "$(id -un)" --property=Linger 2>/dev/null | grep -q yes && return 0
+  if have sudo && sudo loginctl enable-linger "$(id -un)" 2>/dev/null; then
+    ok "user linger enabled (tmux survives ssh disconnects)"
+  else
+    warn "could not enable linger — detached tmux sessions die on disconnect"
+  fi
+}
+
 # --- migration: get pre-home-manager files out of HM's way -------------------
 # HM aborts activation on conflicting files it doesn't manage, and tmux reads
 # ~/.tmux.conf BEFORE ~/.config/tmux/tmux.conf (which would shadow HM's).
@@ -251,6 +264,7 @@ case "$MODE" in
     stage_remote_user
     migrate_to_hm
     hm_switch
+    enable_linger
     ;;
   pi)
     install_pi
@@ -266,6 +280,7 @@ case "$MODE" in
     install_pi
     install_clipboard_shim
     nvim_lazy_sync
+    enable_linger
     ;;
   *)
     die "usage: bootstrap.sh [all|hm|pi]"
