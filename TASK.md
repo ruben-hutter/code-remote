@@ -1,7 +1,9 @@
 # TASK: End-to-end test of code-remote v2 (home-manager bootstrap) — debug & fix until green
 
-**Status: READY.** Ruben creates a fresh VM + ssh alias, then says "go". The
-agent runs the whole loop below autonomously, fixing everything that breaks.
+**Status: DONE (2026-11-05).** Full v2 bootstrap e2e-verified on a fresh Ubuntu 24.04 VM
+(`code-remote-test`, x86_64). All TESTING.md §2 checks pass incl. manual OSC52 yank
+paste on Ruben's terminal. 10 fix commits on main; findings log below. Still open:
+v1→v2 migration path test (step 2/7, skipped by design for a plain v2 run).
 
 ## Mission
 
