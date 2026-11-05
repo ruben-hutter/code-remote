@@ -201,28 +201,46 @@ nvim_lazy_sync() {
 # First config load triggers a pile of async installs: mason LSP servers
 # (mason-lspconfig ensure_installed), treesitter parsers for the filetype,
 # copilot's npx download. If that happens during e.g. pi's ctrl+g external
-# editor, install popups eat keystrokes and the open takes minutes. So: open
-# a scratch markdown file headlessly and wait until the mason package count
-# stops growing. Two passes — single-attempt races then retry here instead
-# of in the user's face.
+# editor, install popups eat keystrokes and the open takes minutes. So:
+# headlessly open a scratch markdown file and drive the installs. mason-
+# lspconfig itself SKIPS ensure_installed in headless mode (platform.
+# is_headless guard), so we read its settings + name mapping and install
+# the missing packages ourselves. Two passes — single-attempt races
+# (observed with tinymist) retry here instead of in the user's face.
 nvim_warmup() {
   have nvim || { warn "nvim not on PATH — skipping warm-up"; return 0; }
   local scratch warm pass
   scratch="$(mktemp --suffix=.md)"
   warm="$(mktemp)"
   cat >"$warm" <<'EOF'
+local mappings = require("mason-lspconfig.mappings")
+local settings = require("mason-lspconfig.settings")
 local reg = require("mason-registry")
+local function install_missing()
+  local n = 0
+  for _, server in ipairs(settings.current.ensure_installed) do
+    local ok, pkg = pcall(function()
+      local name = mappings.get_mason_map().lspconfig_to_package[server] or server
+      local p = reg.get_package(name)
+      if not p:is_installed() then p:install() end
+      return true
+    end)
+    if ok then n = n + 1 end
+  end
+  return n
+end
+reg.refresh(function() install_missing() end)
 local last, stable, waited = -1, 0, 0
-while stable < 5 and waited < 300 do
-  local ok, n = pcall(function() return #reg.get_installed_package_names() end)
+while stable < 5 and waited < 420 do
+  local ok, count = pcall(function() return #reg.get_installed_package_names() end)
   if ok then
-    if n == last then stable = stable + 1 else stable = 0 end
-    last = n
+    if count == last then stable = stable + 1 else stable = 0 end
+    last = count
   end
   vim.wait(3000)
   waited = waited + 3
 end
-print(("mason packages: %d (waited %ds)"):format(last, waited))
+print(("warmup: %d mason packages (%ds)"):format(last, waited))
 vim.cmd("qa!")
 EOF
   for pass in 1 2; do
