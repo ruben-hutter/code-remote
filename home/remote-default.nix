@@ -212,6 +212,10 @@ in
       # do nothing. Declare Ms for every outer terminal; terminals that can't
       # paste OSC52 just ignore it.
       set -as terminal-overrides ',*:Ms=\E]52;c;%p1%s;%p2%s\7'
+      # set-clipboard=external (default) only forwards OSC52 from apps INSIDE
+      # tmux; with "on" tmux also pushes its own buffer changes (load-buffer
+      # -w, i.e. the wl-copy shim) as OSC52 to the attached terminal.
+      set -s set-clipboard on
       # OSC 9/777 notifications: the notify-send shim DCS-wraps its escapes
       # for tmux; passthrough is off by default (tmux >= 3.3) and would drop
       # them. Local terminals without notification support discard these.
