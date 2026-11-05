@@ -33,7 +33,7 @@ info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 push_data_configs() {
   local f
 
-  ssh "$HOST" 'mkdir -p ~/.pi/agent'
+  ssh -n "$HOST" 'mkdir -p ~/.pi/agent'
 
   # pi: config-level files only; sessions/, install/, npm/, bin/ never leave here
   for f in "${PI_FILES[@]}"; do
@@ -61,8 +61,8 @@ resolve_pi_keys() {
   [ -f "$HOME/.pi/agent/auth.json" ] || return 0
   PI_AUTH_RESOLVED="$(mktemp)"
   chmod 600 "$PI_AUTH_RESOLVED"
-  if ssh "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
-    ssh "$HOST" 'cat ~/.pi/agent/auth.json' > "$PI_AUTH_RESOLVED" # keep remote-only creds
+  if ssh -n "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
+    ssh -n "$HOST" 'cat ~/.pi/agent/auth.json' > "$PI_AUTH_RESOLVED" # keep remote-only creds
   else
     cp "$HOME/.pi/agent/auth.json" "$PI_AUTH_RESOLVED"
   fi
@@ -86,7 +86,7 @@ resolve_pi_keys() {
 push_pi_keys() {
   [ -n "${PI_AUTH_RESOLVED:-}" ] || return 0
   # Never the raw file: "!pass" commands cannot work on the remote (no pass).
-  if ssh "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
+  if ssh -n "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
     rsync -az "$PI_AUTH_RESOLVED" "$HOST:.pi/agent/auth.json" # merge-updated in resolve_pi_keys
   elif [ "${SEED_AUTH:-}" = 1 ]; then
     rsync -az "$PI_AUTH_RESOLVED" "$HOST:.pi/agent/auth.json"
@@ -98,9 +98,9 @@ push_pi_keys() {
 }
 
 # --- the one flow -------------------------------------------------------------
-if ! ssh "$HOST" 'test -d ~/code-remote/.git' 2>/dev/null; then
+if ! ssh -n "$HOST" 'test -d ~/code-remote/.git' 2>/dev/null; then
   info "cloning code-remote on $HOST"
-  ssh "$HOST" "git clone -q '$REPO' ~/code-remote" \
+  ssh -n "$HOST" "git clone -q '$REPO' ~/code-remote" \
     || { echo "clone failed — is $REPO reachable from the host?" >&2; exit 1; }
 fi
 
@@ -108,7 +108,7 @@ fi
 # (resolved from local pass) onto the remote. Existing remotes are always
 # merge-updated (remote-only credentials preserved) — no question needed.
 SEED_AUTH=0
-if ! ssh "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
+if ! ssh -n "$HOST" 'test -f ~/.pi/agent/auth.json' 2>/dev/null; then
   printf 'seed pi API keys (auth.json, resolved from local pass) to %s? [y/N] ' "$HOST"
   read -r answer || answer=""
   case "$answer" in [Yy]*) SEED_AUTH=1 ;; esac
