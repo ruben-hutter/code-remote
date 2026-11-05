@@ -140,6 +140,11 @@ in
       grep = "grep --color=auto";
       clera = "clear";
       nv = "nvim";
+      # NOTE: `tm` is a FUNCTION in initExtra, not a shellAlias: an alias
+      # tm=… expands while the tm() definition line is PARSED, mangling it
+      # into "$HOME/scripts/…sh() {" → "not a valid identifier" — which
+      # kills the inside-tmux guard and runs the picker on every pane.
+      # (.bashrc-personal must not define the alias either.)
     };
 
     initExtra = ''
