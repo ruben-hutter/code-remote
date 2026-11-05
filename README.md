@@ -47,7 +47,7 @@ That's it. `./bootstrap` (= `remote/bootstrap.sh`):
 5. builds + activates the home-manager generation (`~/.nix-profile`, XDG
    configs, store-symlinked nvim/tmux/starship; `~/scripts` + `~/.agents/skills`
    come from the locked `scripts`/`skills` flake inputs)
-6. installs **pi** (official install.sh → `~/.local`), reconciles declared pi
+6. installs **pi** (official install.sh → `~/.pi/agent/bin`), reconciles declared pi
    packages, installs OSC52/OSC9 shims on headless hosts, fetches nvim plugins
    (pinned by the vendored `lazy-lock.json`)
 
@@ -83,7 +83,7 @@ then ON the host, bootstrap.sh:
 ├─ nix (official installer, sudo for /nix)
 ├─ nix build ~/code-remote#homeConfigurations.remote...
 ├─ generation activate  → ~/.nix-profile + home files
-├─ pi (pi.dev install.sh → ~/.local)
+├─ pi (pi.dev install.sh → ~/.pi/agent/bin)
 ├─ OSC52/OSC9 shims → ~/.local/bin (headless)
 └─ nvim "+Lazy! sync" (pins from vendored lazy-lock)
 ```

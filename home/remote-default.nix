@@ -36,7 +36,7 @@ in
 
   home.sessionVariables.EDITOR = "nvim";
 
-  # Remotes run pi (installed by bootstrap into ~/.local) and need its
+  # Remotes run pi (installed by bootstrap into ~/.pi/agent/bin) and need its
   # runtime on PATH; shims (wl-copy/notify-send OSC) also live in ~/.local/bin.
   # ~/.nix-profile/bin: the HM generation is registered there by activation
   # (nix-env --profile); explicit here so PATH never depends on the system
@@ -44,7 +44,7 @@ in
   home.sessionPath = [
     "$HOME/.nix-profile/bin"
   ];
-  home.sessionVariables.PATH = "$HOME/.local/bin:$PATH";
+  home.sessionVariables.PATH = "$HOME/.local/bin:$HOME/.pi/agent/bin:$PATH";
 
   # === GIT — same settings as the desktop, except: no signing on remotes ===
   # (no gpg agent / secret keys provisioned there, by design)
@@ -192,9 +192,9 @@ in
       set-window-option -g window-active-style bg=terminal
 
       set-environment -g COLORTERM truecolor
-      # pi + OSC shims in ~/.local/bin; $PATH here is the server's startup
-      # PATH (login shell, profile sourced)
-      set-environment -g PATH "$HOME/.local/bin:$PATH"
+      # pi + OSC shims in ~/.local/bin (pi runtime in ~/.pi/agent/bin); $PATH
+      # here is the server's startup PATH (login shell, profile sourced)
+      set-environment -g PATH "$HOME/.local/bin:$HOME/.pi/agent/bin:$PATH"
 
       # Remotes are bash-first: pin both, whatever the login shell says
       set -g default-shell /bin/bash
@@ -301,7 +301,7 @@ in
     htop
 
     # pi coding agent runtime (pi itself is installed imperatively by the
-    # bootstrap: official install.sh → ~/.local)
+    # bootstrap: official install.sh → ~/.pi/agent/bin)
     nodejs
 
     # utilities

@@ -36,8 +36,9 @@ SRCDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 trap 'rm -rf "$TMP"' EXIT
 
 # nix is needed by hm_switch and (via node) install_pi; profile dirs may not
-# exist yet on a fresh host — add what exists, plus ~/.local/bin for pi/shims.
-for p in /nix/var/nix/profiles/default/bin "$HOME/.nix-profile/bin" "$BIN"; do
+# exist yet on a fresh host — add what exists, plus ~/.local/bin for shims and
+# ~/.pi/agent/bin for pi (managed installer location).
+for p in /nix/var/nix/profiles/default/bin "$HOME/.nix-profile/bin" "$HOME/.pi/agent/bin" "$BIN"; do
   [ -d "$p" ] && export PATH="$p:$PATH"
 done
 
@@ -210,6 +211,9 @@ install_pi() {
     warn "pi install failed (continuing without it)"
     return 0
   fi
+  # the managed installer puts pi in ~/.pi/agent/bin — make it visible NOW so
+  # the reconcile below works and later steps (`have pi`) see it
+  export PATH="$HOME/.pi/agent/bin:$PATH"
   # settings.json may declare packages (themes, extensions) — reconcile them
   pi update --extensions </dev/null >/dev/null 2>&1 \
     || warn "pi package reconcile failed (run manually: pi update --extensions)"
@@ -217,15 +221,21 @@ install_pi() {
 
 # --- OSC shims for headless hosts (reused from v1) ----------------------------
 install_clipboard_shim() {
-  for t in pbcopy clip.exe wl-copy xsel xclip; do
+  # skip only on a real Wayland session (real wl-copy works there). The HM
+  # profile ships wl-clipboard, so plain `have wl-copy` is true even headless —
+  # checking it alone would skip the OSC52 shim and silently break tmux yank.
+  if [ -n "${WAYLAND_DISPLAY:-}" ] && have wl-copy; then return 0; fi
+  for t in pbcopy clip.exe xsel xclip; do
     have "$t" && return 0
   done
+  mkdir -p "$BIN" # fresh hosts have no ~/.local/bin yet
   install -m 755 "$SRCDIR/bin/wl-copy" "$BIN/wl-copy"
   ok "wl-copy OSC52 shim (tmux-yank on headless host)"
 }
 
 install_notify_shim() {
   have notify-send && return 0
+  mkdir -p "$BIN" # fresh hosts have no ~/.local/bin yet
   install -m 755 "$SRCDIR/bin/notify-send" "$BIN/notify-send"
   ok "notify-send OSC shim (pi notifications via terminal)"
 }
