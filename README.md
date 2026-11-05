@@ -2,9 +2,9 @@
 
 Provision a **userspace** dev environment on a remote host over plain ssh —
 powered by **nix + home-manager**, no dotfiles maintained on the remote, no
-GitHub keys on the remote. **Self-contained**: the host clones exactly **one**
-repo (this one) and builds its own environment; your machine only ever sends
-credentials.
+GitHub SSH keys on the remote. **Self-contained**: the host clones exactly
+**one** repo (this one) and builds its own environment; your machine only
+ever sends credentials.
 
 Everything declarative lives in this repo's `flake.nix` + `home/`: a headless,
 bash-first home-manager profile. Desktop-shared configs (nvim, starship.toml,
@@ -44,24 +44,31 @@ That's it. `bin/code-remote` (or `just bootstrap myserver`):
    `~/.bashrc-personal`; and asks once whether to seed pi API keys on a host
    that has none (resolved locally from `pass`)
 3. **runs `remote/bootstrap.sh` on the host** (plain ssh, interactive):
-   1. checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
-   2. installs **nix** (official installer; sudo needed once for `/nix`)
-   3. stages your username into `home/remote-user.nix` (per-host identity;
+   1. seeds git identity into `~/.config/git/config` — the file HM will own,
+      but ~10 min before it exists: without it, commits made during the
+      bootstrap (or before its first run) get git's fallback identity
+      (`Ubuntu <user@host>`)
+   2. checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
+   3. installs **nix** (official installer; sudo needed once for `/nix`)
+   4. stages your username into `home/remote-user.nix` (per-host identity;
       staged because a flake in a git tree is sourced from the git index)
-   4. builds + activates the home-manager generation (`~/.nix-profile`, XDG
+   5. builds + activates the home-manager generation (`~/.nix-profile`, XDG
       configs, store-symlinked nvim/tmux/starship; `~/scripts` +
       `~/.agents/skills` come from the locked `scripts`/`skills` flake
       inputs). Pre-existing dotfiles (`~/.bashrc`, `~/.tmux.conf`,
       `~/.config/nvim`, …) are moved aside as `*.pre-home-manager` by the
       activation itself
-   5. installs **pi** (official install.sh → `~/.pi/agent/bin`) and reconciles
+   6. installs **pi** (official install.sh → `~/.pi/agent/bin`) and reconciles
       declared pi packages, fetches nvim plugins (pinned by the desktop
       `lazy-lock.json`), warms up nvim (headless scratch-file open so the
       one-time mason/treesitter/copilot installs finish during bootstrap,
       not during your first editor open — e.g. pi's ctrl+g), enables user
       linger (tmux survives ssh disconnects)
-4. **resolves + pushes pi API keys** (local `!pass show …` commands run on
-   your machine; literal keys land in the remote's `auth.json`)
+4. **resolves + pushes credentials**: pi API keys (local `!pass show …`
+   commands run on your machine; literal keys land in the remote's
+   `auth.json`) and the **gh token** (resolved from `pass show github/pat`,
+   piped to `gh auth login --with-token` on the host — gh is a pure HTTPS
+   API client, so the remote's SSH key does nothing for it)
 
 Everything declarative lives in this repo's `flake.nix` + `home/` — including
 the OSC52 clipboard shim for headless hosts (`~/.local/bin/wl-copy`, a
@@ -89,6 +96,7 @@ github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote (flake + boot
 
 sync + bootstrap (one command, from your machine):
 ~/.pi/agent config + keys     ───▶ ~/.pi/agent          (keys resolved from pass LOCALLY)
+pass github/pat               ───▶ gh auth login        (token resolved LOCALLY, after bootstrap)
 ~/.bashrc-personal            ───▶ ~/.bashrc-personal   (aliases — data, HM sources it)
 
 then ON the host, bootstrap.sh:
@@ -118,7 +126,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 | tmux | bash panes, C-a prefix, vi mode, catppuccin, yank (OSC52 on headless), resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
 | shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` sourced; new interactive shells drop straight into the tmux session picker (`tm` — no-op inside tmux) |
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
-| tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, bat, btop, htop, lf, gopls, nil, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
+| tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, gh, bat, btop, htop, lf, gopls, nil, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
 
 All versions come from this repo's `flake.lock` — bump with `nix flake update`
@@ -142,6 +150,16 @@ run):
   you answer `y` at the prompt `bin/code-remote` asks up front; an existing
   one is always merge-updated.
 - `~/.bashrc-personal` (aliases).
+
+Pushed by `bin/code-remote` **after** the bootstrap (the tools must exist
+first):
+
+- **gh token**: resolved locally from `pass show github/pat` and pushed with
+  `gh auth login --with-token`. gh talks to the GitHub API over HTTPS — the
+  SSH key is irrelevant to it. Missing/empty pass entry → skipped with a
+  warning (create it with `pass insert github/pat`; use a classic PAT with
+  `repo`/`read:org` or a fine-grained one covering your repos). Re-running
+  re-pushes, so token rotations propagate.
 
 Not synced at all anymore: `~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim/`,
 `~/.config/starship.toml`, `~/scripts`, `~/.agents/skills`, `~/nixos-config` —
@@ -196,6 +214,6 @@ abort on them) — the HM generation then owns everything.
   the remote nvim unless you add an OSC52 clipboard provider to the nvim
   config.
 - **API keys live on remotes in plaintext** (by design): resolved from your
-  local pass and written into the remote's `auth.json`. Fine for your own
-  VMs — decline the seed prompt on a host you don't trust, or remove the
-  provider from `auth.json`.
+  local pass and written into the remote's `auth.json` (pi) and
+  `~/.config/gh/hosts.yml` (gh). Fine for your own VMs — decline the seed
+  prompt on a host you don't trust, or remove the provider from `auth.json`.

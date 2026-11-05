@@ -11,11 +11,16 @@
 #
 # Idempotent — re-run any time to update the host and re-sync credentials.
 # Asks one question up front: whether to seed pi API keys on a host that has
-# none (resolved from local pass).
+# none (resolved from local pass). The gh token is also resolved from local
+# pass (GH_PASS_ENTRY) and pushed whenever the entry exists — gh is an HTTPS
+# API client, so the remote's SSH key does nothing for it.
 set -euo pipefail
 
 # --- fixed config (kept here — edit the script, not a conf file) --------------
 REPO="https://github.com/ruben-hutter/code-remote"
+# gh: pass entry holding the GitHub PAT (classic with repo/read:org, or
+# fine-grained with the repos you need — gh validates scopes on login)
+GH_PASS_ENTRY="github/pat"
 # pi: config-level files only; sessions/, install/, npm/, bin/ never leave here
 PI_FILES=(settings.json keybindings.json AGENTS.md trust.json models-store.json)
 # extensions that stay LOCAL ONLY (notify.ts: no notifications on remotes)
@@ -97,6 +102,38 @@ push_pi_keys() {
   rm -f "$PI_AUTH_RESOLVED"; PI_AUTH_RESOLVED=""
 }
 
+# --- gh token, pushed AFTER the bootstrap (gh comes from the HM profile) ------
+# gh is a pure HTTPS API client — the remote's SSH key plays no part in it —
+# so it needs its own GitHub token. Resolved LOCALLY from pass and fed to
+# `gh auth login --with-token` on the host (same no-pass-on-remote pattern as
+# the pi keys above). Re-running re-pushes, so token rotations propagate.
+resolve_gh_token() {
+  GH_TOKEN_RESOLVED=""
+  if ! command -v pass >/dev/null 2>&1; then
+    warn "gh token: no pass locally — skipping"
+    return 0
+  fi
+  GH_TOKEN_RESOLVED="$(pass show "$GH_PASS_ENTRY" 2>/dev/null | head -n 1 | tr -d '\r')" || GH_TOKEN_RESOLVED=""
+  [ -n "$GH_TOKEN_RESOLVED" ] && return 0
+  GH_TOKEN_RESOLVED=""
+  warn "gh token: pass entry '$GH_PASS_ENTRY' missing/empty — skipping (gh API calls won't work; create it: pass insert $GH_PASS_ENTRY)"
+}
+
+push_gh_token() {
+  [ -n "${GH_TOKEN_RESOLVED:-}" ] || return 0
+  # NO `ssh -n` here — it would cut off stdin, which the token travels on.
+  # `ssh host cmd` is a non-interactive non-login shell (no .profile/.bashrc,
+  # see the HM bashrc's interactivity guard) and gh lives in the HM profile —
+  # prepend the profile dir explicitly, exactly like bootstrap.sh does.
+  if printf '%s\n' "$GH_TOKEN_RESOLVED" | ssh "$HOST" \
+      'export PATH="$HOME/.nix-profile/bin:$PATH"; gh auth login --with-token' >/dev/null 2>&1; then
+    ok "gh authenticated (verify on $HOST: gh auth status)"
+  else
+    warn "gh auth failed — check token validity/scopes on $HOST"
+  fi
+  GH_TOKEN_RESOLVED=""
+}
+
 # --- the one flow -------------------------------------------------------------
 if ! ssh -n "$HOST" 'test -d ~/code-remote/.git' 2>/dev/null; then
   info "cloning code-remote on $HOST"
@@ -122,5 +159,7 @@ ssh -t "$HOST" 'cd ~/code-remote && git pull --ff-only -q && bash remote/bootstr
 
 resolve_pi_keys
 push_pi_keys
+resolve_gh_token
+push_gh_token
 
 info "done — $HOST is ready (connect: ssh $HOST, or your own tool)"

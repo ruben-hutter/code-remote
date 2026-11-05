@@ -51,6 +51,9 @@ in
 
   # === GIT — same settings as the desktop, except: no signing on remotes ===
   # (no gpg agent / secret keys provisioned there, by design)
+  # NOTE: this config only exists after the first HM activation; bootstrap.sh
+  # seeds the same identity (~/.config/git/config) before that — keep in sync
+  # (seed_git_identity in remote/bootstrap.sh).
   programs.git = {
     enable = true;
     settings = {
@@ -392,5 +395,10 @@ in
     jq
     unzip
     zip
+
+    # GitHub CLI — pure HTTPS API client (PRs/issues/releases): the remote's
+    # SSH key does nothing for it, so auth is provisioned by bin/code-remote
+    # (PAT resolved from local pass → `gh auth login --with-token`)
+    gh
   ];
 }
