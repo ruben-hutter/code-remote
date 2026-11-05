@@ -154,11 +154,8 @@ in
       # Ignore upper and lowercase when TAB completion
       bind "set completion-ignore-case on"
 
-      # Personal aliases, synced by code-remote sync (data, not logic — outside HM)
+      # Personal aliases, pushed by bin/code-remote (data, not logic — outside HM)
       [ -r "$HOME/.bashrc-personal" ] && . "$HOME/.bashrc-personal"
-
-      # API keys synced by code-remote sync (plain env file)
-      [ -r "$HOME/.config/code-remote/passenv" ] && . "$HOME/.config/code-remote/passenv"
     '';
   };
 

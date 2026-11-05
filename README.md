@@ -40,7 +40,8 @@ That's it. `bin/code-remote` (or `just bootstrap myserver`):
    fast-forwards it if it exists) — the flake must physically exist there to
    build
 2. **pushes your data + config**: pi config files, `extensions/`, `agents/`,
-   `~/.bashrc-personal`, `passenv` (secrets resolved locally from `pass`)
+   `~/.bashrc-personal`; and asks once whether to seed pi API keys on a host
+   that has none (resolved locally from `pass`)
 3. **runs `remote/bootstrap.sh` on the host** (plain ssh, interactive):
    1. checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
    2. installs **nix** (official installer; sudo needed once for `/nix`)
@@ -83,7 +84,6 @@ github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote (flake + boot
 
 sync + bootstrap (one command, from your machine):
 ~/.pi/agent config + keys     ───▶ ~/.pi/agent          (keys resolved from pass LOCALLY)
-~/.config/code-remote/passenv ───▶ ~/.config/code-remote (PASS_ENVARS → plain env file)
 ~/.bashrc-personal            ───▶ ~/.bashrc-personal   (aliases — data, HM sources it)
 
 then ON the host, bootstrap.sh:
@@ -110,7 +110,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 |---|---|
 | nvim | your full config, vendored in this repo (`home/nvim/`), store-symlinked; plugins pinned by the vendored `lazy-lock.json` |
 | tmux | bash panes, C-a prefix, vi mode, catppuccin, yank (OSC52 on headless), resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
-| shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` + `passenv` sourced |
+| shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` sourced |
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
 | tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, bat, btop, htop, lf, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
@@ -118,7 +118,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 All versions come from this repo's `flake.lock` — bump with `nix flake update`
 here, commit the lock, then re-run `bin/code-remote myserver`.
 
-## What gets synced (imperative data, from `code-remote.conf`)
+## What gets synced (imperative data)
 
 Pushed by `bin/code-remote` before the bootstrap runs (re-pushed on every
 run):
@@ -132,11 +132,9 @@ run):
   commands here; those commands run **on your machine** and the literal keys
   are merged into the remote's `auth.json` (remote-only credentials, e.g.
   OAuth logins done there, are preserved). No pass, no gpg on the remote.
-  `SYNC_PI_AUTH=0` skips seeding a fresh remote; an existing one is always
-  merge-updated.
-- `~/.config/code-remote/passenv` — env vars from `PASS_ENVARS` (resolved via
-  local `pass`), sourced by the HM bashrc; for providers that read the
-  environment (e.g. `OPENROUTER_API_KEY`).
+  Seeding a fresh remote (which has no `auth.json` at all) happens only if
+  you answer `y` at the prompt `bin/code-remote` asks up front; an existing
+  one is always merge-updated.
 - `~/.bashrc-personal` (aliases).
 
 Not synced at all anymore: `~/.bashrc`, `~/.tmux.conf`, `~/.config/nvim/`,
@@ -189,7 +187,6 @@ abort on them) — the HM generation then owns everything.
   the remote nvim unless you add an OSC52 clipboard provider to the nvim
   config.
 - **API keys live on remotes in plaintext** (by design): resolved from your
-  local pass at sync time and written into the remote's `auth.json` +
-  `~/.config/code-remote/passenv`. Fine for your own VMs — skip syncing to a
-  host you don't trust by removing the provider from `auth.json` and
-  `PASS_ENVARS`.
+  local pass and written into the remote's `auth.json`. Fine for your own
+  VMs — decline the seed prompt on a host you don't trust, or remove the
+  provider from `auth.json`.

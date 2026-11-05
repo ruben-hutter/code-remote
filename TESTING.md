@@ -40,9 +40,10 @@ What happens, in order:
 2. **push data + config from your machine** — pi config files
    (`settings.json`, `keybindings.json`, `AGENTS.md`, `trust.json`,
    `models-store.json`), `extensions/` (minus `gondolin/`, `blink1.ts`),
-   `agents/`, `~/.bashrc-personal`, `~/.config/code-remote/passenv` (from
-   `PASS_ENVARS`, resolved locally via pass). Happens BEFORE the bootstrap so
+   `agents/`, `~/.bashrc-personal`. Happens BEFORE the bootstrap so
    `pi update --extensions` reconciles against the current `settings.json`.
+   Also asks here: `seed pi API keys …? [y/N]` (only for hosts with no
+   `auth.json` yet).
 3. **run `remote/bootstrap.sh` on the host** (plain interactive ssh), which:
    - checks base tools (git, curl, tar, unzip; sudo-installs missing ones)
    - installs nix (official installer, sudo for `/nix`)
@@ -60,7 +61,7 @@ What happens, in order:
 4. **push pi keys from your machine** — `!pass show …` commands in local
    `auth.json` are executed locally, literal keys merged into the remote's
    `auth.json` (remote-only credentials preserved; a fresh remote is seeded
-   when `SYNC_PI_AUTH=1`).
+   only if you answered `y` to the seed prompt in step 2).
    **Never pushed:** raw local `auth.json` (`!pass` can't work remotely),
    `sessions/`, `install/`, `npm/`, `bin/`.
    **Owned by the HM generation / flake inputs instead:** `~/scripts`,
@@ -112,10 +113,9 @@ in the remote nvim cannot persist — the store config is read-only.
 
 ```sh
 head -3 ~/.bashrc                          # HM header (read-only store symlink)
-grep -n 'bashrc-personal\|passenv' ~/.bashrc   # both sourced in initExtra
+grep -n 'bashrc-personal' ~/.bashrc        # sourced in initExtra
 grep -n 'direnv hook\|starship init\|fzf --bash' ~/.bashrc   # hooks wired by HM
 bash -ic 'alias ll'                        # aliases from .bashrc-personal work
-bash -ic 'echo ${OPENROUTER_API_KEY:+set}' # set (passenv file)
 ```
 
 **tmux** — HM-owned config, OSC52 yank:
