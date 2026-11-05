@@ -119,7 +119,9 @@ install_nix() {
   [ -d /run/systemd/system ] || die "no systemd — the nix multi-user install needs it (VM/server, not a bare container)"
   info "installing nix $NIX_VERSION (official installer, multi-user — takes a minute)"
   fetch "https://releases.nixos.org/nix/nix-$NIX_VERSION/install" "$TMP/nix-install"
-  sh "$TMP/nix-install" --daemon || die "nix install failed"
+  # --yes: non-interactive (accept all prompts) — this command must run
+  # unattended from bin/code-remote
+  sh "$TMP/nix-install" --daemon --yes || die "nix install failed"
   ok "nix $NIX_VERSION installed"
   export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
 }
@@ -173,7 +175,9 @@ install_pi() {
     else
       ok "pi present ($(pi --version 2>/dev/null | head -1))"
     fi
-  elif curl -fsSL https://pi.dev/install.sh | sh; then
+  # setsid: no controlling tty → pi's installer skips its [y/n] menus and
+  # takes the default action (install) — keeps this flow unattended
+  elif curl -fsSL https://pi.dev/install.sh | setsid sh; then
     ok "pi installed"
   else
     warn "pi install failed (continuing without it)"
