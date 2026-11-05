@@ -97,7 +97,7 @@ github:ruben-hutter/code-remote ◀─ git clone → ~/code-remote (flake + boot
 sync + bootstrap (one command, from your machine):
 ~/.pi/agent config + keys     ───▶ ~/.pi/agent          (keys resolved from pass LOCALLY)
 pass github/pat               ───▶ gh auth login        (token resolved LOCALLY, after bootstrap)
-~/.bashrc-personal            ───▶ ~/.bashrc-personal   (aliases — data, HM sources it)
+~/.bashrc-personal            ───▶ ~/.bashrc-personal   (aliases — data, HM sources it; `upal` rewritten dnf→apt for the host)
 
 then ON the host, bootstrap.sh:
 │

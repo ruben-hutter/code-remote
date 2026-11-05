@@ -52,9 +52,17 @@ push_data_configs() {
     "$HOME/.pi/agent/extensions/" "$HOST:.pi/agent/extensions/"
   rsync -az --delete "$HOME/.pi/agent/agents/" "$HOST:.pi/agent/agents/"
 
-  # personal aliases — plain data, sourced by the HM-generated .bashrc
+  # personal aliases — plain data, sourced by the HM-generated .bashrc.
+  # The local file is Fedora-first (`upal` runs dnf); hosts here are
+  # Debian/Ubuntu — rewrite `upal` for apt in the PUSHED copy only (the
+  # local file stays untouched).
   if [ -f "$HOME/.bashrc-personal" ]; then
-    rsync -az "$HOME/.bashrc-personal" "$HOST:.bashrc-personal"
+    local brc
+    brc="$(mktemp)"
+    sed 's|^alias upal=.*|alias upal="sudo apt update \&\& sudo apt upgrade"|' \
+      "$HOME/.bashrc-personal" > "$brc"
+    rsync -az "$brc" "$HOST:.bashrc-personal"
+    rm -f "$brc"
   fi
 }
 
