@@ -88,10 +88,32 @@ in
   # ~/.agents/skills: the skills/ subtree of the skills flake input — one
   # store symlink, read-only by design (skills are data; update via
   # `nix flake update` + re-run bootstrap).
+  # ~/.local/bin/wl-copy: OSC52 clipboard shim, declared here (not installed
+  # by the bootstrap) so the whole remote env stays in the flake. PATH puts
+  # ~/.local/bin first, so on headless hosts this shadows the profile's real
+  # wl-copy and tmux pipes copies through it. Runtime behavior: on a real
+  # Wayland session defer to the real wl-copy (checked in the profile dir,
+  # NOT via PATH — that would recurse onto this shim), else feed tmux.
   home.file = {
     ".config/nvim".source = ./nvim;
     ".config/starship.toml".source = ./assets/starship.toml;
     ".agents/skills".source = "${skills}/skills";
+    ".local/bin/wl-copy" = {
+      text = ''
+        #!/bin/sh
+        # code-remote: OSC52 clipboard shim (HM-managed). Inside tmux on a
+        # headless host there is no usable clipboard, so pipe selections to
+        # `tmux load-buffer -w -` and let tmux forward them to the attached
+        # terminal as OSC52 (tmux >= 3.3, Ms override + set-clipboard on).
+        if [ -n "''${WAYLAND_DISPLAY:-}" ]; then
+            for d in "$HOME/.nix-profile/bin" /usr/bin /usr/local/bin /bin; do
+                [ -x "$d/wl-copy" ] && exec "$d/wl-copy" "$@"
+            done
+        fi
+        exec tmux load-buffer -w -
+      '';
+      executable = true;
+    };
   } // builtins.listToAttrs (
     map (script: {
       name = "scripts/${script}";
