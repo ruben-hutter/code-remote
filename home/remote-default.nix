@@ -260,10 +260,13 @@ in
 
       bind -r m resize-pane -Z
 
-      # Vi copy mode bindings
+      # Vi copy mode bindings — `y` and mouse-drag copy-pipe through the
+      # OSC52 shim (see copy-command/binds at the top of this file; do NOT
+      # rebind them to plain copy-selection here — that silently disables
+      # clipboard forwarding on headless hosts)
       bind -T copy-mode-vi 'v' send -X begin-selection
-      bind -T copy-mode-vi 'y' send -X copy-selection
-      unbind -T copy-mode-vi MouseDragEnd1Pane
+      bind -T copy-mode-vi 'y' send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
+      bind -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
 
       # Custom scripts (installed to ~/scripts from the scripts flake input)
       bind i run-shell "tmux neww $HOME/scripts/cht.sh"
