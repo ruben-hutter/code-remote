@@ -11,9 +11,8 @@ bash-first home-manager profile. Desktop-shared configs (nvim, starship.toml,
 lf/btop/htop) come from the
 [`nixos-config`](https://github.com/ruben-hutter/nixos-config) desktop repo as
 a **flake input** — one canonical copy, no duplication, pinned by
-`flake.lock` (bump with `nix flake update nixos-config`); scripts and agent
-skills are flake inputs the same way (public, fetched read-only into the nix
-store — no clones, no submodules).
+`flake.lock`; scripts and agent skills are flake inputs the same way (public,
+fetched read-only into the nix store — no clones, no submodules).
 
 ```
 usage: bin/code-remote <ssh-alias>    full setup: repo on host + nix/HM/pi + keys
@@ -24,9 +23,6 @@ Connect to the machine afterwards with plain ssh or your own tool (pxc).
 
 `<ssh-alias>` is anything ssh understands — a `user@host` or an alias from
 `~/.ssh/config` (`just bootstrap <alias>` is a wrapper).
-
-`<ssh-alias>` is anything ssh understands — a `user@host` or an alias from
-`~/.ssh/config`.
 
 ## The flow (one command, from your machine)
 
@@ -70,10 +66,6 @@ That's it. `bin/code-remote` (or `just bootstrap myserver`):
    piped to `gh auth login --with-token` on the host — gh is a pure HTTPS
    API client, so the remote's SSH key does nothing for it)
 
-Everything declarative lives in this repo's `flake.nix` + `home/` — including
-the OSC52 clipboard shim for headless hosts (`~/.local/bin/wl-copy`, a
-HM-managed `home.file` that defers to the real wl-copy on Wayland sessions).
-
 Updates: re-run `bin/code-remote myserver` — repos fast-forward, nix skips
 unchanged deps, HM only rewrites what moved, keys are re-resolved.
 
@@ -110,10 +102,10 @@ then ON the host, bootstrap.sh:
 
 The host writes `~/code-remote/home/remote-user.nix` (its own username/home)
 before activation and stages it — a flake in a git tree is sourced from the
-git index, so an untracked file would be invisible to nix. The shared
-desktop configs (nvim, starship.toml, lfrc, btop/htop) come from the
-nixos-config flake input — the desktop repo stays the only place to edit
-them; pin a newer state with `nix flake update nixos-config` here.
+git index, so an untracked file would be invisible to nix. The shared desktop
+configs (nvim, starship.toml, lfrc, btop/htop) come from the nixos-config
+flake input — the desktop repo stays the only place to edit them; pin a newer
+state with `nix flake update nixos-config` here.
 
 ## What the remote gets (declarative, from the flake)
 
@@ -123,7 +115,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 | Area | What |
 |---|---|
 | nvim | your full config, from the nixos-config flake input, store-symlinked; plugins pinned by its `lazy-lock.json` |
-| tmux | bash panes, C-a prefix, vi mode, catppuccin, yank (OSC52 on headless), resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
+| tmux | bash panes, C-a prefix, vi mode, catppuccin, OSC52 yank on headless, resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
 | shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` sourced; new interactive shells drop straight into the tmux session picker (`tm` — no-op inside tmux) |
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
 | tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, gh, bat, btop, htop, lf, gopls, nil, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
@@ -155,8 +147,7 @@ Pushed by `bin/code-remote` **after** the bootstrap (the tools must exist
 first):
 
 - **gh token**: resolved locally from `pass show github/pat` and pushed with
-  `gh auth login --with-token`. gh talks to the GitHub API over HTTPS — the
-  SSH key is irrelevant to it. Missing/empty pass entry → skipped with a
+  `gh auth login --with-token`. Missing/empty pass entry → skipped with a
   warning (create it with `pass insert github/pat`; use a classic PAT with
   `repo`/`read:org` or a fine-grained one covering your repos). Re-running
   re-pushes, so token rotations propagate.
@@ -185,9 +176,8 @@ abort on them) — the HM generation then owns everything.
 - **Debian/Ubuntu only**: base tools install via apt; the nix multi-user
   install needs systemd. Fedora/Arch/container hosts are out of scope (the
   script dies with a clear message there).
-- **sudo** is needed once, for nix (`/nix` + daemon users). tmux is no longer
-  a root exception — it comes from the HM profile. Without sudo, bootstrap
-  dies with a clear message (install nix manually, re-run).
+- **sudo** is needed once, for nix (`/nix` + daemon users). Without sudo,
+  bootstrap dies with a clear message (install nix manually, re-run).
 - **Non-interactive ssh** (`ssh host <cmd>`): the HM bashrc has an
   interactivity guard, so PATH comes from `.profile` — login shells and tmux
   panes are fine, but a bare non-login command only sees `~/.local/bin`.
@@ -205,14 +195,12 @@ abort on them) — the HM generation then owns everything.
 - First `nvim` launch / bootstrap may still fetch a few Mason LSP servers
   lazily (nodejs/gcc from the HM profile cover their build needs).
 - **Clipboard**: tmux copy-mode `y` (and mouse drag) reaches your local
-  clipboard on headless hosts via the OSC52 shim — a HM-managed
-  `~/.local/bin/wl-copy` (declared in the flake; on a real Wayland session it
-  defers to the real wl-copy) — and tmux pipes copies through it
-  (`tmux load-buffer -w`), which forwards the buffer to your terminal as
-  OSC52 (needs an OSC52-capable terminal; `Ms` override + `set-clipboard on`
-  are configured in the remote tmux config). nvim's own `y`/`yy` stays inside
-  the remote nvim unless you add an OSC52 clipboard provider to the nvim
-  config.
+  clipboard on headless hosts via OSC52 — a HM-managed
+  `~/.local/bin/wl-copy` shim that pipes into `tmux load-buffer -w`, which
+  forwards the buffer to your terminal (needs an OSC52-capable terminal;
+  `Ms` override + `set-clipboard on` are configured in the remote tmux
+  config). nvim's own `y`/`yy` stays inside the remote nvim unless you add
+  an OSC52 clipboard provider to the nvim config.
 - **API keys live on remotes in plaintext** (by design): resolved from your
   local pass and written into the remote's `auth.json` (pi) and
   `~/.config/gh/hosts.yml` (gh). Fine for your own VMs — decline the seed

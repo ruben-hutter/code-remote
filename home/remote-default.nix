@@ -1,15 +1,11 @@
-# Declarative remote environment for NON-NixOS coding VMs, provisioned by
-# this repo's bootstrap. Self-contained: no dependency on the nixos-config
-# repo — shared configs (nvim, starship.toml, lfrc, btop/htop) come from the
-# nixos-config flake input, pinned by flake.lock (one canonical copy, no
-# duplication; bump with `nix flake update nixos-config`).
+# Declarative remote environment for non-NixOS coding VMs: headless,
+# bash-first, shared configs (nvim, starship.toml, lfrc, btop/htop) from the
+# nixos-config flake input — one canonical copy, pinned by flake.lock.
 #
-# Headless and bash-first (no fish on remotes). Host identity (username/
-# homeDirectory) comes from home/remote-user.nix, written by the bootstrap
-# on the target host and STAGED there — a flake in a git tree is sourced
-# from the git index, so an untracked file would be invisible to nix:
-#   { name = "ruben"; home = "/home/ruben"; }
-# Falls back to ruben so the flake still evaluates on the dev box.
+# Host identity (username/homeDirectory) comes from home/remote-user.nix,
+# written and STAGED by the bootstrap on the target host — a flake in a git
+# tree is sourced from the git index, so an untracked file would be invisible
+# to nix. Falls back to ruben so the flake still evaluates locally.
 {
   config,
   pkgs,
@@ -25,11 +21,10 @@ let
   remoteUser =
     if builtins.pathExists ./remote-user.nix
     then import ./remote-user.nix
-    else
-      {
-        name = "ruben";
-        home = "/home/ruben";
-      };
+    else {
+      name = "ruben";
+      home = "/home/ruben";
+    };
 in
 {
   home.username = remoteUser.name;
@@ -38,22 +33,16 @@ in
 
   home.sessionVariables.EDITOR = "nvim";
 
-  # Remotes run pi (installed by bootstrap into ~/.pi/agent/bin) and need its
-  # runtime on PATH; shims (wl-copy OSC) also live in ~/.local/bin
-  # and MUST shadow the profile's real wl-copy (headless: no Wayland).
-  # ~/.nix-profile/bin: the HM generation is registered there by activation
-  # (nix-env --profile); explicit here so PATH never depends on the system
-  # nix profile.d script (absent on single-user nix installs). Explicit full
-  # order instead of home.sessionPath — sessionPath would prepend the profile
-  # AFTER this, putting real wl-copy ahead of the shim again.
+  # Explicit PATH order (not sessionPath): ~/.local/bin must stay FIRST so
+  # the wl-copy OSC52 shim shadows the profile's real wl-copy on headless
+  # hosts; ~/.nix-profile/bin is spelled out so PATH never depends on the
+  # system nix profile.d script (absent on single-user nix installs).
   home.sessionVariables.PATH =
     "$HOME/.local/bin:$HOME/.pi/agent/bin:$HOME/.nix-profile/bin:$PATH";
 
-  # === GIT — same settings as the desktop, except: no signing on remotes ===
-  # (no gpg agent / secret keys provisioned there, by design)
-  # NOTE: this config only exists after the first HM activation; bootstrap.sh
-  # seeds the same identity (~/.config/git/config) before that — keep in sync
-  # (seed_git_identity in remote/bootstrap.sh).
+  # git — same settings as the desktop, except signing off (no gpg keys on
+  # remotes). bootstrap.sh seeds the same identity pre-activation; keep the
+  # two in sync.
   programs.git = {
     enable = true;
     settings = {
@@ -70,35 +59,23 @@ in
     ];
   };
 
-  # === NVIM — full config from the nixos-config flake input, store-symlinked;
-  # plugins are resolved at runtime by lazy.nvim, pinned by its lazy-lock.json.
-  programs.neovim.enable = true;
-  # headless remotes: no embedded interpreters (also silences the nixpkgs
-  # eval warnings about these defaults having flipped)
-  programs.neovim.withRuby = false;
-  programs.neovim.withPython3 = false;
+  # nvim: full config from the nixos-config input (below, in home.file),
+  # store-symlinked; plugins resolved at runtime by lazy.nvim, pinned by its
+  # lazy-lock.json. No embedded interpreters on headless remotes.
+  programs.neovim = {
+    enable = true;
+    withRuby = false;
+    withPython3 = false;
+  };
 
-  # Runtime deps for the shared config:
-  # - gcc: nvim-treesitter compiles parsers; mason builds some LSP servers
-  # - unzip: mason package installs
-  # - wl-clipboard: nvim clipboard registers (headless remotes use the OSC52
-  #   shim for tmux yank; inside nvim it just stays a no-op binary)
-  # === HM-MANAGED FILES (one home.file definition — same-module duplicates are
-  # a module-system error) ===
-  # nvim: full config from the nixos-config input, store-symlinked; plugins
-  # resolved at runtime by lazy.nvim, pinned by its lazy-lock.json.
-  # ~/scripts: flat executables from the scripts flake input (cht.sh, tmux
-  # session manager, wtree, ...). The walrus hook script is installed too but
-  # NOT wired anywhere — remotes have no pass/walrus.
-  # ~/.agents/skills: the skills/ subtree of the skills flake input — one
-  # store symlink, read-only by design (skills are data; update via
-  # `nix flake update` + re-run bootstrap).
-  # ~/.local/bin/wl-copy: OSC52 clipboard shim, declared here (not installed
-  # by the bootstrap) so the whole remote env stays in the flake. PATH puts
-  # ~/.local/bin first, so on headless hosts this shadows the profile's real
-  # wl-copy and tmux pipes copies through it. Runtime behavior: on a real
-  # Wayland session defer to the real wl-copy (checked in the profile dir,
-  # NOT via PATH — that would recurse onto this shim), else feed tmux.
+  # HM-managed files (one home.file definition — same-module duplicates are
+  # a module-system error):
+  # - nvim config + starship.toml from the nixos-config input
+  # - ~/scripts: executables from the scripts input (cht.sh, tmux session
+  #   manager, wtree, ...)
+  # - ~/.agents/skills: the skills/ subtree — one store symlink, read-only
+  #   by design (update via `nix flake update` + re-run bootstrap)
+  # - ~/.local/bin/wl-copy: OSC52 clipboard shim (see inside)
   home.file = {
     ".config/nvim".source = nixos-config + "/home/programs/nvim";
     ".config/starship.toml".source = nixos-config + "/home/programs/assets/starship.toml";
@@ -106,10 +83,10 @@ in
     ".local/bin/wl-copy" = {
       text = ''
         #!/bin/sh
-        # code-remote: OSC52 clipboard shim (HM-managed). Inside tmux on a
-        # headless host there is no usable clipboard, so pipe selections to
-        # `tmux load-buffer -w -` and let tmux forward them to the attached
-        # terminal as OSC52 (tmux >= 3.3, Ms override + set-clipboard on).
+        # Headless hosts have no clipboard — pipe selections to tmux, which
+        # forwards them to the attached terminal as OSC52 (load-buffer -w).
+        # On a real Wayland session, defer to the real wl-copy (looked up in
+        # fixed dirs, NOT via PATH — that would recurse onto this shim).
         if [ -n "''${WAYLAND_DISPLAY:-}" ]; then
             for d in "$HOME/.nix-profile/bin" /usr/bin /usr/local/bin /bin; do
                 [ -x "$d/wl-copy" ] && exec "$d/wl-copy" "$@"
@@ -129,7 +106,7 @@ in
     }) (builtins.attrNames (builtins.readDir scripts))
   );
 
-  # === BASH — the interactive shell on remotes (v1 philosophy: no fish) ===
+  # bash — the interactive shell on remotes (no fish)
   programs.bash = {
     enable = true;
     enableCompletion = true;
@@ -143,63 +120,51 @@ in
       grep = "grep --color=auto";
       clera = "clear";
       nv = "nvim";
-      # NOTE: `tm` is a FUNCTION in initExtra, not a shellAlias: an alias
-      # tm=… expands while the tm() definition line is PARSED, mangling it
-      # into "$HOME/scripts/…sh() {" → "not a valid identifier" — which
-      # kills the inside-tmux guard and runs the picker on every pane.
-      # (.bashrc-personal must not define the alias either.)
     };
 
     initExtra = ''
-      # HM session vars (PATH incl. ~/.local/bin + ~/.pi/agent/bin, EDITOR…):
-      # hm-session-vars.sh is only sourced by ~/.profile (LOGIN shells), but
-      # tmux panes and `ssh host cmd` run INTERACTIVE NON-LOGIN shells that
-      # never see it — without this, shims and pi are missing from PATH there.
+      # hm-session-vars.sh (PATH incl. the shims + pi, EDITOR, ...) is only
+      # sourced by ~/.profile (login shells); tmux panes run interactive
+      # NON-LOGIN shells and would never see it — source it here too.
       [ -r "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ] && \
         . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
 
-      # Ignore upper and lowercase when TAB completion
       bind "set completion-ignore-case on"
 
-      # Personal aliases, pushed by bin/code-remote (data, not logic — outside HM)
+      # personal aliases, pushed by bin/code-remote (data, not logic — outside HM)
       [ -r "$HOME/.bashrc-personal" ] && . "$HOME/.bashrc-personal"
 
-      # tm — tmux session picker, no-op inside tmux (same as the fish `tm` on
-      # the laptop). Defined as a function, not a shellAlias, so the guard is
-      # part of the name.
+      # tm — tmux session picker, no-op inside tmux. Must be a FUNCTION, not
+      # an alias: an alias tm=… expands while this very definition line is
+      # parsed, mangling it into an invalid identifier — which kills the
+      # inside-tmux guard and runs the picker on every pane.
       tm() { [ -n "''${TMUX:-}" ] || "$HOME/scripts/tmux_session_manager.sh" "$@"; }
 
-      # Drop new plain shells (ssh logins) straight into the tmux session
-      # picker — inside tmux `tm` is a no-op, so tmux panes/windows are
-      # unaffected. bashrc only loads for interactive shells (HM guard), so
-      # `ssh host cmd` never triggers this.
+      # drop new plain ssh shells straight into the session picker; inside
+      # tmux the guard makes this a no-op, and `ssh host cmd` never loads
+      # the interactive bashrc at all
       tm
     '';
   };
 
-  # === STARSHIP + FZF (bash integration; HM wires the evals into bashrc) ===
   programs.starship = {
     enable = true;
     enableBashIntegration = true;
     enableFishIntegration = false;
   };
-  # starship.toml ported verbatim from the desktop (includes the ssh
-  # hostname/container modules, which matter even more on remotes)
 
   programs.fzf.enable = true;
 
-  # === DIRENV + NIX FLAKES (LiveTogether-style dev shells via `use flake`) ===
+  # direnv + nix-direnv: `use flake` dev shells, cached so a VPS doesn't
+  # re-evaluate on every cd
   programs.direnv = {
     enable = true;
     enableBashIntegration = true;
-    # cache flake dev shells so a VPS doesn't re-evaluate on every cd
     nix-direnv.enable = true;
   };
 
-  # User-level nix settings — written to ~/.config/nix/nix.conf. The nix
-  # daemon itself is installed by the bootstrap (official installer);
-  # pkgs.nix here is just the HM-managed CLI in the profile (required by the
-  # module, and keeps `nix` on PATH independent of it).
+  # the nix daemon is installed by the bootstrap; this is just the HM-managed
+  # CLI in the profile (required by the module, keeps `nix` on PATH)
   nix = {
     enable = true;
     package = pkgs.nix;
@@ -209,7 +174,7 @@ in
     ];
   };
 
-  # === TMUX — bash panes, OSC52 yank for headless hosts, no walrus ===
+  # tmux — bash panes, OSC52 yank for headless hosts (see wl-copy shim)
   programs.tmux = {
     enable = true;
     terminal = "screen-256color";
@@ -239,39 +204,32 @@ in
       set-window-option -g window-style bg=terminal
       set-window-option -g window-active-style bg=terminal
 
-      # OSC52 clipboard: tmux only sends copy-buffer escapes when the OUTER
-      # terminal advertises the Ms capability — stock xterm-256color terminfo
-      # does not, so `tmux load-buffer -w` (our wl-copy shim) would silently
-      # do nothing. Declare Ms for every outer terminal using the canonical
-      # xterm format `ESC]52;<selection>;<base64>` — do NOT hardcode "c;" in
-      # the middle (produces 4-field `52;c;;<b64>`, which strict terminals
-      # misparse into the wrong selection).
+      # OSC52 clipboard: tmux only forwards buffers when the OUTER terminal
+      # advertises the Ms capability — stock terminfo does not, so declare it
+      # (canonical xterm format; do NOT hardcode "c;" in the middle: strict
+      # terminals misparse the resulting 4-field sequence). set-clipboard on
+      # makes tmux also push its own buffer changes (the wl-copy shim's
+      # load-buffer -w) as OSC52 to the attached terminal.
       set -as terminal-overrides ',*:Ms=\E]52;%p1%s;%p2%s\7'
-      # set-clipboard=external (default) only forwards OSC52 from apps INSIDE
-      # tmux; with "on" tmux also pushes its own buffer changes (load-buffer
-      # -w, i.e. the wl-copy shim) as OSC52 to the attached terminal.
       set -s set-clipboard on
 
       # OSC52 yank — explicit, NOT the tmux-yank plugin: the plugin detects
       # wl-copy via $WAYLAND_DISPLAY/$DISPLAY, which a headless host never
-      # has, so its `y` binding pipes to nothing. Here copy-mode `y` and the
-      # mouse drag-end pipe through the shim (~/.local/bin/wl-copy → tmux
-      # load-buffer -w → OSC52 above).
+      # has, so its `y` binding would pipe to nothing. Pipe copy-mode y and
+      # mouse drag through the shim instead (~/.local/bin/wl-copy).
       set -g copy-command "tmux load-buffer -w -"
       bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
       bind -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
 
       set-environment -g COLORTERM truecolor
-      # pi + OSC shims in ~/.local/bin (pi runtime in ~/.pi/agent/bin), then
-      # the HM profile; $PATH here is the server's startup PATH (login shell,
-      # profile sourced) — same order as sessionVariables.PATH above
+      # same order as sessionVariables.PATH above; $PATH here is the login
+      # shell's startup PATH (profile already sourced)
       set-environment -g PATH "$HOME/.local/bin:$HOME/.pi/agent/bin:$HOME/.nix-profile/bin:$PATH"
 
-      # Remotes are bash-first: pin both, whatever the login shell says
+      # bash-first, whatever the login shell says
       set -g default-shell /bin/bash
       set -g default-command /bin/bash
 
-      # Renumber windows
       set -g renumber-windows on
 
       # pass modified keys (Alt+Enter etc.) through to TUIs like pi
@@ -299,19 +257,13 @@ in
 
       bind -r m resize-pane -Z
 
-      # Vi copy mode bindings — `y` and mouse-drag copy-pipe through the
-      # OSC52 shim (see copy-command/binds at the top of this file; do NOT
-      # rebind them to plain copy-selection here — that silently disables
-      # clipboard forwarding on headless hosts)
+      # Vi copy mode — keep `y`/mouse-drag on the OSC52 pipe (rebinding them
+      # to plain copy-selection silently disables clipboard forwarding)
       bind -T copy-mode-vi 'v' send -X begin-selection
-      bind -T copy-mode-vi 'y' send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
-      bind -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "tmux load-buffer -w -"
 
-      # Custom scripts (installed to ~/scripts from the scripts flake input)
+      # Custom scripts (~/scripts, from the scripts flake input)
       bind i run-shell "tmux neww $HOME/scripts/cht.sh"
       bind -n M-f display-popup -E -w 60% -h 60% $HOME/scripts/tmux_session_manager.sh
-
-      # NO walrus session hooks here — remotes have no pass/walrus.
 
       # Status bar configuration
       set -g status-right-length 100
@@ -328,7 +280,7 @@ in
     '';
   };
 
-  # === FILE-MANAGER + SYSTEM MONITORS (desktop parity, small configs) ===
+  # small desktop-parity tools
   programs.lf.enable = true;
   programs.lf.extraConfig = builtins.readFile (nixos-config + "/home/programs/assets/lfrc");
   programs.bat.enable = true;
@@ -341,9 +293,8 @@ in
     };
   };
 
-  # btop/htop rewrite their configs on every in-TUI change, so the files are
-  # seeded from the shared versions (nixos-config input) and then owned by
-  # the tools.
+  # btop/htop rewrite their configs on every in-TUI change — seed the shared
+  # versions once, then the tools own them
   programs.btop.enable = true;
   home.activation.btopConfigSeed = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     CONFIG="$HOME/.config/btop/btop.conf"
@@ -361,28 +312,21 @@ in
     fi
   '';
 
-  # === ~/.agents/skills — the skills/ subtree of the skills flake input ===
-  # One store symlink; read-only by design (skills are data, updated via
-  # nix flake update + re-run bootstrap).
-
-  # === PACKAGES (one list — same-module duplicates are a module-system error;
-  # lean, GUI-heavy desktop stuff stays in nixos-config) ===
+  # lean, headless set — GUI-heavy desktop stuff stays in nixos-config
   home.packages = with pkgs; [
-    # nvim runtime deps
-    gcc # nvim-treesitter compiles parsers; mason builds some LSP servers
-    unzip # mason package installs
+    # nvim runtime deps: gcc (treesitter parser + mason builds), unzip
+    # (mason installs), wl-clipboard (clipboard registers; OSC52 shim for
+    # tmux yank), tree-sitter
+    gcc
+    unzip
     wl-clipboard
-    tree-sitter # nvim treesitter parser compilation
-    htop
+    tree-sitter
 
-    # pi coding agent runtime (pi itself is installed imperatively by the
-    # bootstrap: official install.sh → ~/.pi/agent/bin)
+    # pi runtime (pi itself is installed imperatively by the bootstrap)
     nodejs
 
-    # LSPs mason can NOT install on lean hosts (it builds them with go/cargo,
-    # neither on PATH here) — from nixpkgs instead; the nvim config's mason
-    # ensure_installed list deliberately omits them (see nixos-config
-    # lsp.lua)
+    # LSPs mason can NOT build on lean hosts (no go/cargo on PATH); the
+    # nvim config's ensure_installed deliberately omits them
     gopls
     nil
 
@@ -393,12 +337,11 @@ in
     ripgrep
     fd
     jq
-    unzip
     zip
+    htop
 
-    # GitHub CLI — pure HTTPS API client (PRs/issues/releases): the remote's
-    # SSH key does nothing for it, so auth is provisioned by bin/code-remote
-    # (PAT resolved from local pass → `gh auth login --with-token`)
+    # pure HTTPS API client — auth provisioned by bin/code-remote (PAT from
+    # local pass → `gh auth login --with-token`)
     gh
   ];
 }
