@@ -67,6 +67,10 @@ in
   # === NVIM — full config vendored in ./nvim, store-symlinked; plugins are
   # resolved at runtime by lazy.nvim, pinned by the vendored lazy-lock.json.
   programs.neovim.enable = true;
+  # headless remotes: no embedded interpreters (also silences the nixpkgs
+  # eval warnings about these defaults having flipped)
+  programs.neovim.withRuby = false;
+  programs.neovim.withPython3 = false;
 
   # Runtime deps for the vendored config:
   # - gcc: nvim-treesitter compiles parsers; mason builds some LSP servers
@@ -117,6 +121,13 @@ in
     };
 
     initExtra = ''
+      # HM session vars (PATH incl. ~/.local/bin + ~/.pi/agent/bin, EDITOR…):
+      # hm-session-vars.sh is only sourced by ~/.profile (LOGIN shells), but
+      # tmux panes and `ssh host cmd` run INTERACTIVE NON-LOGIN shells that
+      # never see it — without this, shims and pi are missing from PATH there.
+      [ -r "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ] && \
+        . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+
       # Ignore upper and lowercase when TAB completion
       bind "set completion-ignore-case on"
 
