@@ -96,6 +96,10 @@ in
       '';
       executable = true;
     };
+    # `wtree` as a plain command: ~/.local/bin is first on PATH, so agents'
+    # non-interactive shells (which don't source the alias layer) and humans
+    # get it alike. Points at the same store file as ~/scripts/wtree.sh.
+    ".local/bin/wtree".source = scripts + "/wtree.sh";
   } // builtins.listToAttrs (
     map (script: {
       name = "scripts/${script}";
