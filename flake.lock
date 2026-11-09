@@ -65,11 +65,11 @@
     "scripts": {
       "flake": false,
       "locked": {
-        "lastModified": 1793395839,
-        "narHash": "sha256-WGJCSQ/Zc46zOwam/YBG4mk3PAWw5H1Wgz6Iho8mFJ4=",
+        "lastModified": 1794242414,
+        "narHash": "sha256-4dmpZPgaX16QJQjeBLOaPamNrokacyLRSJPLOtFWeWI=",
         "owner": "ruben-hutter",
         "repo": "scripts",
-        "rev": "e332e294987f0bea83d4d2649e8122065477673a",
+        "rev": "9b69be1fa336745bb2216b1774e6544cb036fbd7",
         "type": "github"
       },
       "original": {
