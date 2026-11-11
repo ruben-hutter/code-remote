@@ -372,8 +372,11 @@ in
   home.packages = with pkgs; [
     # nvim runtime deps: gcc (treesitter parser + mason builds), unzip
     # (mason installs), wl-clipboard (clipboard registers; OSC52 shim for
-    # tmux yank), tree-sitter
+    # tmux yank), tree-sitter. go: mason builds gopls from source
+    # (`go install`), like the desktop's /usr/bin/go — without it every
+    # nvim start throws a mason ensure_installed(gopls) failure
     gcc
+    go
     unzip
     wl-clipboard
     tree-sitter
