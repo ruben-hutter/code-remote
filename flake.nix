@@ -21,20 +21,27 @@
       flake = false;
     };
 
-    # shared desktop configs (nvim, starship.toml, lfrc, btop/htop) — the
-    # canonical copy; bump with `nix flake update nixos-config`
+    # shared desktop configs (starship.toml, lfrc, btop/htop) — headless
+    # variants of the desktop ones; bump with `nix flake update nixos-config`
     nixos-config = {
       url = "github:ruben-hutter/nixos-config";
+      flake = false;
+    };
+
+    # live desktop dotfiles — nvim config single source of truth (remotes get
+    # exactly what the fedora machine runs); bump with `nix flake update cfg`
+    cfg = {
+      url = "github:ruben-hutter/.cfg";
       flake = false;
     };
   };
 
   outputs =
-    { self, nixpkgs, home-manager, scripts, skills, nixos-config }:
+    { self, nixpkgs, home-manager, scripts, skills, nixos-config, cfg }:
     let
       mkRemoteHome = system: home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.${system};
-        extraSpecialArgs = { inherit scripts skills nixos-config; };
+        extraSpecialArgs = { inherit scripts skills nixos-config cfg; };
         modules = [ ./home/remote-default.nix ];
       };
     in

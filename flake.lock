@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "cfg": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794416624,
+        "narHash": "sha256-ZUga1UIyeti39YGXWOAl03E1N3DOMNGvtIeNGZSHCjk=",
+        "owner": "ruben-hutter",
+        "repo": ".cfg",
+        "rev": "2e1ee9d2b5feb1afcf276c443fbaf9dbbca65ac8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ruben-hutter",
+        "repo": ".cfg",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -7,11 +23,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793757180,
-        "narHash": "sha256-gyV7AtCwLnOImcrfSETP4J3Ie96bz19DY47B7m7Y3HM=",
+        "lastModified": 1794278858,
+        "narHash": "sha256-rkrJwLgLSHBnXfgoSKIDa+2LLGdTqynsV3GAxOTGhUU=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "b787c48e2ec57a9d098f5c2721882a3bc1e16f97",
+        "rev": "82ce401aa350502897c3f2e85f384d61cd3b0b6d",
         "type": "github"
       },
       "original": {
@@ -24,11 +40,11 @@
     "nixos-config": {
       "flake": false,
       "locked": {
-        "lastModified": 1794414239,
-        "narHash": "sha256-JIhWz40ibSPTNunQniE+ndUM0klfP1MwMYw+IDoFiKI=",
+        "lastModified": 1794416703,
+        "narHash": "sha256-ZyAw5k2FKgj+5Po5QAjvj7MctBy6xxe0EfOV6fhyHJo=",
         "owner": "ruben-hutter",
         "repo": "nixos-config",
-        "rev": "636d02e4ec6ee2db1fa7dc2e6e2737fb6e0c250c",
+        "rev": "ffb51aa13ce70d8b5f99423b3bfa90152126a92b",
         "type": "github"
       },
       "original": {
@@ -39,11 +55,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1793726008,
-        "narHash": "sha256-jQp1wKvbwWdLBASTXkSi/VYmDJ5AbBi1WvcMt9HWJC8=",
+        "lastModified": 1794042290,
+        "narHash": "sha256-ziZn2PvCJE5JEEpqTdxXwJpPB+L3YqoCpTAMCzyaP3U=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "1d060086d60cb76a40cf37109f979d88a5bd6396",
+        "rev": "f4a03c008967841f2a0b3cb7c436fc6fc31671f6",
         "type": "github"
       },
       "original": {
@@ -55,6 +71,7 @@
     },
     "root": {
       "inputs": {
+        "cfg": "cfg",
         "home-manager": "home-manager",
         "nixos-config": "nixos-config",
         "nixpkgs": "nixpkgs",

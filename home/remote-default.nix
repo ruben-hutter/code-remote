@@ -1,6 +1,7 @@
 # Declarative remote environment for non-NixOS coding VMs: headless,
 # bash-first, shared configs (nvim, starship.toml, lfrc, btop/htop) from the
 # nixos-config flake input — one canonical copy, pinned by flake.lock.
+# nvim comes from the cfg input (live fedora dotfiles) instead — see below.
 #
 # Host identity (username/homeDirectory) comes from home/remote-user.nix,
 # written and STAGED by the bootstrap on the target host — a flake in a git
@@ -14,6 +15,7 @@
   scripts,
   skills,
   nixos-config,
+  cfg,
   ...
 }:
 
@@ -64,7 +66,8 @@ in
     ];
   };
 
-  # nvim: full config from the nixos-config input (below, in home.file),
+  # nvim: full config from the cfg input — the live fedora ~/.cfg dotfiles,
+  # so remotes run exactly what the desktop runs (below, in home.file);
   # store-symlinked; plugins resolved at runtime by lazy.nvim, pinned by its
   # lazy-lock.json. No embedded interpreters on headless remotes.
   programs.neovim = {
@@ -75,14 +78,15 @@ in
 
   # HM-managed files (one home.file definition — same-module duplicates are
   # a module-system error):
-  # - nvim config + starship.toml from the nixos-config input
+  # - nvim config from the cfg input (live ~/.cfg), starship.toml (headless
+  #   variant) from the nixos-config input
   # - ~/scripts: executables from the scripts input (cht.sh, tmux session
   #   manager, wtree, ...)
   # - ~/.agents/skills: the skills/ subtree — one store symlink, read-only
   #   by design (update via `nix flake update` + re-run bootstrap)
   # - ~/.local/bin/wl-copy: OSC52 clipboard shim (see inside)
   home.file = {
-    ".config/nvim".source = nixos-config + "/home/programs/nvim";
+    ".config/nvim".source = cfg + "/.config/nvim";
     ".config/starship.toml".source = nixos-config + "/home/programs/assets/starship.toml";
     ".agents/skills".source = "${skills}/skills";
     ".local/bin/wl-copy" = {
