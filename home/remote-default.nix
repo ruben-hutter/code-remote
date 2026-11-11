@@ -25,6 +25,11 @@ let
       name = "ruben";
       home = "/home/ruben";
     };
+
+  # judge model for the glm-auto.ts pi extension (synced from the local
+  # machine's ~/.pi/agent/extensions by bin/code-remote) — must match the
+  # extension's PI_AUTO_JUDGE_MODEL default; change both together
+  glmJudgeModel = "qwen2.5:1.5b-instruct";
 in
 {
   home.username = remoteUser.name;
@@ -316,6 +321,48 @@ in
     fi
   '';
 
+  # --- ollama: local judge for the glm-auto.ts pi extension --------------------
+  # The extension (synced by bin/code-remote) routes zai/auto prompts;
+  # ambiguous-length ones are judged by this local model — free, private, no
+  # API round-trip. Without the service the extension still works, via a
+  # remote glm-5.3-flash judge call. CPU-only ollama build: the 1.5B judge
+  # needs no GPU. Mirrors the extension's documented manual Ollama setup.
+  systemd.user.services.ollama = {
+    Unit.Description = "Ollama LLM server (local judge for the glm-auto pi extension)";
+    Service = {
+      ExecStart = "${pkgs.ollama}/bin/ollama serve";
+      Environment = [
+        "OLLAMA_HOST=127.0.0.1:11434"
+        "OLLAMA_MODELS=%h/.local/share/ollama/models"
+      ];
+      Restart = "on-failure";
+      RestartSec = 3;
+    };
+    Install.WantedBy = [ "default.target" ];
+  };
+
+  # Enable/start the service and pull the judge model once (~1GB, Q4 —
+  # cached afterwards, so re-running bootstrap is a cheap no-op). Ordered
+  # after reloadSystemD so the unit is live before we poke systemctl.
+  # Best-effort: a missing user systemd session or a failed pull warns
+  # instead of aborting the whole activation.
+  home.activation.ollamaJudgeModel = lib.hm.dag.entryAfter [ "reloadSystemD" ] ''
+    if command -v systemctl >/dev/null; then
+      systemctl --user enable --now ollama.service >/dev/null 2>&1 || true
+    fi
+    for _ in 1 2 3 4 5; do # give a fresh service a moment to listen
+      $DRY_RUN_CMD ${pkgs.ollama}/bin/ollama list >/dev/null 2>&1 && break
+      sleep 1
+    done
+    if ! $DRY_RUN_CMD ${pkgs.ollama}/bin/ollama list 2>/dev/null | grep -q '^${glmJudgeModel}'; then
+      if $DRY_RUN_CMD ${pkgs.ollama}/bin/ollama pull ${glmJudgeModel}; then
+        printf '  ✓ judge model pulled (%s)\n' "${glmJudgeModel}"
+      else
+        printf '  ! judge model pull failed (is ollama.service up? run: ollama pull ${glmJudgeModel})\n' >&2
+      fi
+    fi
+  '';
+
   # lean, headless set — GUI-heavy desktop stuff stays in nixos-config
   home.packages = with pkgs; [
     # nvim runtime deps: gcc (treesitter parser + mason builds), unzip
@@ -328,6 +375,10 @@ in
 
     # pi runtime (pi itself is installed imperatively by the bootstrap)
     nodejs
+
+    # local judge server for the glm-auto extension (systemd user service +
+    # activation hook above); CPU-only build — the judge model needs no GPU
+    ollama
 
     # LSPs mason can NOT build on lean hosts (no go/cargo on PATH); the
     # nvim config's ensure_installed deliberately omits them

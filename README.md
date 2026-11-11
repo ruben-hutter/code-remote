@@ -120,6 +120,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
 | tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, gh, bat, btop, htop, lf, gopls, nil, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
+| local AI router | ollama (CPU build) as a systemd user service + a pulled `qwen2.5:1.5b-instruct` judge model — serves the local routing judge of the `zai/auto` pi extension (`glm-auto.ts`, synced from your machine's `extensions/`); without it the extension falls back to a remote judge call |
 
 All versions come from this repo's `flake.lock` — bump with `nix flake update`
 here, commit the lock, then re-run `bin/code-remote myserver`.
@@ -182,7 +183,8 @@ abort on them) — the HM generation then owns everything.
   interactivity guard, so PATH comes from `.profile` — login shells and tmux
   panes are fine, but a bare non-login command only sees `~/.local/bin`.
   Connect with plain ssh (interactive login) or your own tool.
-- Disk: the nix closure is ~1–2 GB — fine for normal VMs, tight below
+- Disk: the nix closure is ~1–2 GB, plus ~1 GB for the ollama judge model
+  (pulled once on first activation) — fine for normal VMs, tight below
   ~5 GB disks.
 - **nvim plugin updates** on remotes: update locally (`:Lazy update`), commit
   the lock in the nixos-config desktop repo (push), then in THIS repo run
