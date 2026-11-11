@@ -24,14 +24,14 @@
     # shared desktop configs (starship.toml, lfrc, btop/htop) — headless
     # variants of the desktop ones; bump with `nix flake update nixos-config`
     nixos-config = {
-      url = "git+https://github.com/ruben-hutter/nixos-config";
+      url = "github:ruben-hutter/nixos-config";
       flake = false;
     };
 
     # live desktop dotfiles — nvim config single source of truth (remotes get
     # exactly what the fedora machine runs); bump with `nix flake update cfg`
     cfg = {
-      url = "git+https://github.com/ruben-hutter/.cfg";
+      url = "github:ruben-hutter/.cfg";
       flake = false;
     };
   };
