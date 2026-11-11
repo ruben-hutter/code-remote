@@ -5,15 +5,15 @@
       "locked": {
         "lastModified": 1794416624,
         "narHash": "sha256-ZUga1UIyeti39YGXWOAl03E1N3DOMNGvtIeNGZSHCjk=",
-        "owner": "ruben-hutter",
-        "repo": ".cfg",
+        "ref": "refs/heads/fedora",
         "rev": "2e1ee9d2b5feb1afcf276c443fbaf9dbbca65ac8",
-        "type": "github"
+        "revCount": 228,
+        "type": "git",
+        "url": "https://github.com/ruben-hutter/.cfg"
       },
       "original": {
-        "owner": "ruben-hutter",
-        "repo": ".cfg",
-        "type": "github"
+        "type": "git",
+        "url": "https://github.com/ruben-hutter/.cfg"
       }
     },
     "home-manager": {
@@ -42,15 +42,15 @@
       "locked": {
         "lastModified": 1794416703,
         "narHash": "sha256-ZyAw5k2FKgj+5Po5QAjvj7MctBy6xxe0EfOV6fhyHJo=",
-        "owner": "ruben-hutter",
-        "repo": "nixos-config",
+        "ref": "refs/heads/master",
         "rev": "ffb51aa13ce70d8b5f99423b3bfa90152126a92b",
-        "type": "github"
+        "revCount": 62,
+        "type": "git",
+        "url": "https://github.com/ruben-hutter/nixos-config"
       },
       "original": {
-        "owner": "ruben-hutter",
-        "repo": "nixos-config",
-        "type": "github"
+        "type": "git",
+        "url": "https://github.com/ruben-hutter/nixos-config"
       }
     },
     "nixpkgs": {
