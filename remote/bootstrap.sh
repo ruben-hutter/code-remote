@@ -6,7 +6,12 @@
 # HM activation, pi, nvim plugin fetch + warm-up, user linger.
 set -euo pipefail
 
-NIX_VERSION=2.35.4
+# nix version ON THE HOSTS must match the nix that computes flake.lock on
+# the desktop (the lock producer): narHash in the lock is only reproducible
+# across identical nix generations (the NAR serialization ordering changed
+# between 2.32 and 2.35 — same tree, different hash). Bump this TOGETHER with
+# the desktop's nix, then re-run `nix flake update` on the desktop.
+NIX_VERSION=2.32.4
 
 BIN="$HOME/.local/bin"
 TMP="$(mktemp -d)"
@@ -101,18 +106,27 @@ ensure_base() {
 
 # --- nix (official installer; needs sudo once for /nix) -----------------------
 install_nix() {
-  local nixbin
+  local nixbin found=""
   for nixbin in /nix/var/nix/profiles/default/bin/nix "$HOME/.nix-profile/bin/nix"; do
     if [ -x "$nixbin" ]; then
-      ok "nix present ($("$nixbin" --version 2>/dev/null))"
-      return
+      found=1
+      if "$nixbin" --version 2>/dev/null | grep -q "$NIX_VERSION"; then
+        ok "nix present ($("$nixbin" --version 2>/dev/null))"
+        return
+      fi
+      warn "nix version mismatch: $("$nixbin" --version 2>/dev/null) != $NIX_VERSION — must match the lock-producing desktop nix"
+      break
     fi
   done
   if ! have sudo; then
     die "no sudo — nix needs to create /nix; give the user sudo or install nix manually"
   fi
   [ -d /run/systemd/system ] || die "no systemd — the nix multi-user install needs it (VM/server, not a bare container)"
-  info "installing nix $NIX_VERSION (official installer, multi-user — takes a minute)"
+  if [ -n "$found" ]; then
+    info "reinstalling nix $NIX_VERSION (version self-heal — official installer, multi-user)"
+  else
+    info "installing nix $NIX_VERSION (official installer, multi-user — takes a minute)"
+  fi
   fetch "https://releases.nixos.org/nix/nix-$NIX_VERSION/install" "$TMP/nix-install"
   sh "$TMP/nix-install" --daemon --yes || die "nix install failed" # --yes: unattended
   ok "nix $NIX_VERSION installed"
