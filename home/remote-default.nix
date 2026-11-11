@@ -342,11 +342,12 @@ in
   };
 
   # Enable/start the service and pull the judge model once (~1GB, Q4 —
-  # cached afterwards, so re-running bootstrap is a cheap no-op). Ordered
-  # after reloadSystemD so the unit is live before we poke systemctl.
-  # Best-effort: a missing user systemd session or a failed pull warns
-  # instead of aborting the whole activation.
-  home.activation.ollamaJudgeModel = lib.hm.dag.entryAfter [ "reloadSystemD" ] ''
+  # cached afterwards, so re-running bootstrap is a cheap no-op). MUST run
+  # after reloadSystemd (the unit is only linked + started by that step —
+  # note the lowercase "d", a wrong name here is silently ignored by the
+  # DAG sort). Best-effort: a missing user systemd session or a failed pull
+  # warns instead of aborting the whole activation.
+  home.activation.ollamaJudgeModel = lib.hm.dag.entryAfter [ "onFilesChange" "reloadSystemd" ] ''
     if command -v systemctl >/dev/null; then
       systemctl --user enable --now ollama.service >/dev/null 2>&1 || true
     fi
