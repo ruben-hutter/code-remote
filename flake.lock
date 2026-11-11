@@ -40,11 +40,11 @@
     "nixos-config": {
       "flake": false,
       "locked": {
-        "lastModified": 1794416703,
-        "narHash": "sha256-ZyAw5k2FKgj+5Po5QAjvj7MctBy6xxe0EfOV6fhyHJo=",
+        "lastModified": 1794419995,
+        "narHash": "sha256-ZgWHObKK3zqHtMSiOfXEpp8F7GQe2ngHtDPlRquQmlA=",
         "owner": "ruben-hutter",
         "repo": "nixos-config",
-        "rev": "ffb51aa13ce70d8b5f99423b3bfa90152126a92b",
+        "rev": "c9df44da40d64ab889ba9f60190b10c0722ad633",
         "type": "github"
       },
       "original": {
