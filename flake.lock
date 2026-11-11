@@ -82,11 +82,11 @@
     "scripts": {
       "flake": false,
       "locked": {
-        "lastModified": 1794242414,
-        "narHash": "sha256-4dmpZPgaX16QJQjeBLOaPamNrokacyLRSJPLOtFWeWI=",
+        "lastModified": 1794419679,
+        "narHash": "sha256-TgCxRnOAUwz9JXEyn7y2xP5Ppr+C0M432tJiQo56mDo=",
         "owner": "ruben-hutter",
         "repo": "scripts",
-        "rev": "9b69be1fa336745bb2216b1774e6544cb036fbd7",
+        "rev": "5c52ec985f486438d9a6935ea72121e60d17dc8e",
         "type": "github"
       },
       "original": {
@@ -98,11 +98,11 @@
     "skills": {
       "flake": false,
       "locked": {
-        "lastModified": 1793395839,
-        "narHash": "sha256-kqB2Piyo+RKU72ptCZw0voPSpU7efAyqqNY7Ou6WCwo=",
+        "lastModified": 1794419679,
+        "narHash": "sha256-ysIgYP1Jj06f0iMEoIOdu+LjMLK10HF8yX7zgl1heW8=",
         "owner": "ruben-hutter",
         "repo": "skills",
-        "rev": "d048364c13476ca198e3d9957fa3195548283e9b",
+        "rev": "d3030a8664c3b7005ec667dc2ef858f382c38f67",
         "type": "github"
       },
       "original": {
