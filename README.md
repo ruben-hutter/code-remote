@@ -99,7 +99,7 @@ then ON the host, bootstrap.sh:
 ├─ nix build ~/code-remote#homeConfigurations.remote...
 ├─ generation activate  → ~/.nix-profile + home files (conflicts → *.pre-home-manager)
 ├─ pi (pi.dev install.sh → ~/.pi/agent/bin)
-└─ nvim "+Lazy! sync" (pins from lazy-lock.json) + user linger
+└─ nvim "+Lazy! restore" (pins from lazy-lock.json) + user linger
 ```
 
 The host writes `~/code-remote/home/remote-user.nix` (its own username/home)
@@ -109,6 +109,9 @@ configs come from two flake inputs: nvim from the `cfg` input (the live
 `~/.cfg` fedora dotfiles — edit them there), starship/lf/btop/htop headless
 variants from the nixos-config input. Pin newer states with
 `nix flake update cfg` / `nix flake update nixos-config` here.
+Caveat: the remote's nvim config is a **read-only store symlink** — don't run
+`:Lazy update` there (it can't write `lazy-lock.json` and fails); nvim updates
+flow through the cfg input pin + re-bootstrap, exactly like everything else.
 
 ## What the remote gets (declarative, from the flake)
 
@@ -121,7 +124,7 @@ One `home-manager` profile — `homeConfigurations.remote` (x86_64) /
 | tmux | bash panes, C-a prefix, vi mode, catppuccin, OSC52 yank on headless, resurrect/continuum, cht.sh + session-manager binds — from `~/scripts` |
 | shell | bash + starship (+ ssh hostname/container modules), fzf, direnv hook, `~/.bashrc-personal` sourced; new interactive shells drop straight into the tmux session picker (`tm` — no-op inside tmux) |
 | nix dev shells | direnv + `nix-command flakes`, nix-direnv caching — `use flake` in any `.envrc` (LiveTogether-style) just works after `direnv allow` |
-| tools | neovim, nodejs, gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, gh, bat, btop, htop, lf, gopls, nil, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
+| tools | neovim, nodejs, go (Mason builds gopls from source), gcc, tree-sitter (Mason/treesitter), ripgrep, fd, fzf, jq, lazygit, gh, bat, btop, htop, lf, gopls, nil, wget/curl/tree/unzip/zip, `~/scripts` (locked `scripts` flake input) |
 | git | same settings as desktop, **signing off** (no gpg keys on remotes) |
 | local AI router | ollama (CPU build) as a systemd user service + a pulled `qwen2.5:1.5b-instruct` judge model — serves the local routing judge of the `zai/auto` pi extension (`glm-auto.ts`, synced from your machine's `extensions/`); without it the extension falls back to a remote judge call |
 
