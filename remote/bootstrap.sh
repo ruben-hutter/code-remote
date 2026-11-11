@@ -177,12 +177,17 @@ install_pi() {
 }
 
 # --- nvim plugins (versions pinned by the desktop lazy-lock.json) -------------
-nvim_lazy_sync() {
-  have nvim || { warn "nvim not on PATH — skipping lazy sync"; return 0; }
-  if nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1; then
-    ok "nvim plugins (lazy sync, pinned by lazy-lock.json)"
+# :Lazy restore installs exactly the commits from lazy-lock.json. :Lazy sync
+# would instead UPDATE plugins to their spec branch HEAD — nvim-treesitter's
+# default branch is the rewritten `main` (no nvim-treesitter.configs), which
+# breaks the config's legacy-API after/plugin files. (lazy's trailing attempt
+# to rewrite the read-only store lockfile errors harmlessly; nothing to write.)
+nvim_lazy_restore() {
+  have nvim || { warn "nvim not on PATH — skipping lazy restore"; return 0; }
+  if nvim --headless "+Lazy! restore" +qa >/dev/null 2>&1; then
+    ok "nvim plugins (lazy restore, pinned by lazy-lock.json)"
   else
-    warn "lazy sync failed — run inside nvim: :Lazy! sync"
+    warn "lazy restore failed — run inside nvim: :Lazy! restore"
   fi
 }
 
@@ -246,7 +251,7 @@ install_nix
 stage_remote_user
 hm_switch
 install_pi
-nvim_lazy_sync
+nvim_lazy_restore
 nvim_warmup
 enable_linger
 
