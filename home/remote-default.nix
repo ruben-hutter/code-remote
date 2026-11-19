@@ -205,9 +205,26 @@ in
         extraConfig = ''
           set -g @catppuccin_flavour 'mocha'
           set -g @catppuccin_window_status_style "rounded"
+          # status-right must be set HERE, not in extraConfig below: home-manager
+          # emits extraConfig after all plugin run-shells, so a status-right set
+          # there clobbers the #(continuum_save.sh) hook continuum prepends at
+          # load — auto-save never fires and sessions are lost on reboot.
+          set -g status-right "#{E:@catppuccin_status_application}"
+          set -ag status-right "#{E:@catppuccin_status_session}"
+          set -ag status-right "#{E:@catppuccin_status_uptime}"
         '';
       }
-      resurrect
+      {
+        plugin = resurrect;
+        extraConfig = ''
+          # must be set BEFORE continuum loads: its background restore script
+          # reads @continuum-restore at plugin-load time, and extraConfig loads
+          # after all plugins (too late — restore would silently stay off)
+          set -g @resurrect-capture-pane-contents 'on'
+          set -g @continuum-restore 'on'
+          set -g @continuum-save-interval '5'
+        '';
+      }
       continuum
     ];
 
@@ -278,18 +295,14 @@ in
       bind i run-shell "tmux neww $HOME/scripts/cht.sh"
       bind -n M-f display-popup -E -w 60% -h 60% $HOME/scripts/tmux_session_manager.sh
 
-      # Status bar configuration
+      # Status bar config — status-right itself is set in the catppuccin plugin
+      # block above (setting it here would clobber continuum's save hook)
       set -g status-right-length 100
       set -g status-left-length 100
       set -g status-left ""
-      set -g status-right "#{E:@catppuccin_status_application}"
-      set -ag status-right "#{E:@catppuccin_status_session}"
-      set -ag status-right "#{E:@catppuccin_status_uptime}"
       set -g status on
 
-      # Resurrect and continuum settings
-      set -g @resurrect-capture-pane-contents 'on'
-      set -g @continuum-restore 'on'
+      # Resurrect/continuum settings live in the resurrect plugin block above
     '';
   };
 
