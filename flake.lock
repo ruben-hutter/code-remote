@@ -98,11 +98,11 @@
     "skills": {
       "flake": false,
       "locked": {
-        "lastModified": 1794419679,
-        "narHash": "sha256-ysIgYP1Jj06f0iMEoIOdu+LjMLK10HF8yX7zgl1heW8=",
+        "lastModified": 1795094846,
+        "narHash": "sha256-eR0QUVm8l2Cap4l9yrk6ZytBzWT/xGjv58uhVCA4Gk0=",
         "owner": "ruben-hutter",
         "repo": "skills",
-        "rev": "d3030a8664c3b7005ec667dc2ef858f382c38f67",
+        "rev": "a311372290d497d1dba369d4c8dbaa13c0d8c244",
         "type": "github"
       },
       "original": {
