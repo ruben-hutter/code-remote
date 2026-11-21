@@ -16,6 +16,7 @@
   skills,
   nixos-config,
   cfg,
+  nixpkgs-nvim,
   ...
 }:
 
@@ -72,6 +73,12 @@ in
   # lazy-lock.json. No embedded interpreters on headless remotes.
   programs.neovim = {
     enable = true;
+    # nvim 0.11.x (nixpkgs 25.11) instead of unstable's 0.12: the shared
+    # .cfg config pins nvim-treesitter `master`, which breaks on nvim >= 0.12,
+    # and the fedora desktop runs 0.11 — remotes stay on the same major.
+    # Use neovim-UNWRAPPED: HM wraps it with unstable's (nix 2.32-compatible)
+    # wrapper; 25.11's own wrapped package can't build under nix >= 2.3x.
+    package = (import nixpkgs-nvim { inherit (pkgs) system; }).neovim-unwrapped;
     withRuby = false;
     withPython3 = false;
   };
