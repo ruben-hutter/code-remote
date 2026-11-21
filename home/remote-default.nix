@@ -67,6 +67,11 @@ in
     ];
   };
 
+  # gh credential helper for git: gh auth itself is provisioned by
+  # bin/code-remote (PAT from local pass → `gh auth login --with-token`).
+  # Lets git push/pull over https non-interactively (agents, scripts).
+  programs.gh.enable = true;
+
   # nvim: full config from the cfg input — the live fedora ~/.cfg dotfiles,
   # so remotes run exactly what the desktop runs (below, in home.file);
   # store-symlinked; plugins resolved at runtime by lazy.nvim, pinned by its
@@ -423,8 +428,8 @@ in
     zip
     htop
 
-    # pure HTTPS API client — auth provisioned by bin/code-remote (PAT from
-    # local pass → `gh auth login --with-token`)
-    gh
+    # gh: installed via programs.gh above (also wires the git credential
+    # helper) — auth provisioned by bin/code-remote (PAT from local pass →
+    # `gh auth login --with-token`)
   ];
 }
