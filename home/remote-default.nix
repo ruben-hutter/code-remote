@@ -16,7 +16,6 @@
   skills,
   nixos-config,
   cfg,
-  nixpkgs-nvim,
   ...
 }:
 
@@ -33,6 +32,17 @@ let
   # machine's ~/.pi/agent/extensions by bin/code-remote) — must match the
   # extension's PI_AUTO_JUDGE_MODEL default; change both together
   glmJudgeModel = "qwen2.5:1.5b-instruct";
+
+  # nvim version pin: the cfg nvim config (compat shims in lua/buba/
+  # compat.lua + lazy-lock.json plugin pins) is known-good with this minor
+  # series — the same one the fedora desktop runs (F44 ships 0.12). nvim
+  # itself comes from the locked nixpkgs, which floats on `nix flake
+  # update`; the assertion below turns a silent jump (e.g. to 0.13, where
+  # vim.tbl_flatten is removed) into a loud build failure instead of a
+  # subtly broken editor on the remote. Bump ONLY after testing the new
+  # nvim against the desktop config (checkhealth + telescope/treesitter
+  # smoke test) and bumping cfg if the compat shim / lazy-lock need it.
+  supportedNvimVersion = "0.12.";
 in
 {
   home.username = remoteUser.name;
@@ -72,18 +82,28 @@ in
   # Lets git push/pull over https non-interactively (agents, scripts).
   programs.gh.enable = true;
 
+  # nvim version pin (see supportedNvimVersion in let) — enforced via
+  # home-manager's assertion machinery: failed assertions abort the build
+  assertions = [
+    {
+      assertion = lib.hasPrefix supportedNvimVersion pkgs.neovim-unwrapped.version;
+      message = ''
+        nixpkgs now ships neovim ${pkgs.neovim-unwrapped.version}, but the cfg
+        nvim config is known-good with ${supportedNvimVersion}x only — pin
+        nixpkgs back in flake.lock, or test the new nvim against the config
+        and bump cfg + supportedNvimVersion together
+      '';
+    }
+  ];
+
   # nvim: full config from the cfg input — the live fedora ~/.cfg dotfiles,
   # so remotes run exactly what the desktop runs (below, in home.file);
   # store-symlinked; plugins resolved at runtime by lazy.nvim, pinned by its
   # lazy-lock.json. No embedded interpreters on headless remotes.
+  # Version: whatever the locked nixpkgs ships (0.12.6 — same as the F44
+  # desktop; see supportedNvimVersion assertion above).
   programs.neovim = {
     enable = true;
-    # nvim 0.11.x (nixpkgs 25.11) instead of unstable's 0.12: the shared
-    # .cfg config pins nvim-treesitter `master`, which breaks on nvim >= 0.12,
-    # and the fedora desktop runs 0.11 — remotes stay on the same major.
-    # Use neovim-UNWRAPPED: HM wraps it with unstable's (nix 2.32-compatible)
-    # wrapper; 25.11's own wrapped package can't build under nix >= 2.3x.
-    package = (import nixpkgs-nvim { inherit (pkgs) system; }).neovim-unwrapped;
     withRuby = false;
     withPython3 = false;
   };
