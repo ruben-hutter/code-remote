@@ -28,13 +28,6 @@
       flake = false;
     };
 
-    # nvim 0.11 for remotes: nvim-treesitter `master` (pinned by .cfg's
-    # lazy-lock.json) crashes on nvim >= 0.12 (languagetree 'range' nil),
-    # and the fedora desktop runs 0.11.x — keep remotes on the same major.
-    # 25.11 ships 0.11.7 and substitutes from cache.nixos.org (25.05's
-    # expression misses the cache and can't build under nix >= 2.3x).
-    nixpkgs-nvim.url = "github:NixOS/nixpkgs/nixos-25.11";
-
     # live desktop dotfiles — nvim config single source of truth (remotes get
     # exactly what the fedora machine runs); bump with `nix flake update cfg`
     cfg = {
@@ -44,12 +37,11 @@
   };
 
   outputs =
-    { self, nixpkgs, home-manager, scripts, skills, nixos-config, cfg
-    , nixpkgs-nvim }:
+    { self, nixpkgs, home-manager, scripts, skills, nixos-config, cfg }:
     let
       mkRemoteHome = system: home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.${system};
-        extraSpecialArgs = { inherit scripts skills nixos-config cfg nixpkgs-nvim; };
+        extraSpecialArgs = { inherit scripts skills nixos-config cfg; };
         modules = [ ./home/remote-default.nix ];
       };
     in
