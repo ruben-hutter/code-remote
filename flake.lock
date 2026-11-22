@@ -3,11 +3,11 @@
     "cfg": {
       "flake": false,
       "locked": {
-        "lastModified": 1794416624,
-        "narHash": "sha256-ZUga1UIyeti39YGXWOAl03E1N3DOMNGvtIeNGZSHCjk=",
+        "lastModified": 1795350568,
+        "narHash": "sha256-bNzZz1fJPxETkXahTkjZ4zWji82GHD5eVsSmqcmaHTI=",
         "owner": "ruben-hutter",
         "repo": ".cfg",
-        "rev": "2e1ee9d2b5feb1afcf276c443fbaf9dbbca65ac8",
+        "rev": "762dfc83a406df973fdc83892247d15fcec79df7",
         "type": "github"
       },
       "original": {
