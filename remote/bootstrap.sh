@@ -133,6 +133,84 @@ install_nix() {
   export PATH="/nix/var/nix/profiles/default/bin:$HOME/.nix-profile/bin:$PATH"
 }
 
+# --- pre-existing nix profile repairs -----------------------------------------
+# Profiles migrated from nix-env can contain clang and binutils at the same
+# priority. Both provide bin/as: nix profile rejects that pair on EVERY later
+# rebuild, including HM's removal of its old home-manager-path. Move only the
+# existing clang element to a unique lower priority, retaining its exact store
+# paths (and therefore every output and its locked version).
+repair_clang_binutils_profile_collision() {
+  local profile="${1:-$HOME/.nix-profile}"
+  [ -e "$profile/manifest.json" ] || return 0
+
+  local manifest="$TMP/nix-profile-elements.json"
+  if ! nix profile list --json --profile "$profile" >"$manifest" 2>/dev/null; then
+    warn "could not inspect existing nix profile — activation will retry it"
+    return 0
+  fi
+
+  local repair
+  if ! repair="$(CODE_REMOTE_PROFILE_JSON="$manifest" nix eval --impure --raw --expr '
+    let
+      profile = builtins.fromJSON (builtins.readFile (builtins.getEnv "CODE_REMOTE_PROFILE_JSON"));
+      elements = builtins.attrValues profile.elements;
+      priority = element: element.priority or 5;
+      wrappers = name: builtins.filter
+        (element: builtins.any
+          (path: builtins.match (".*-" + name + "-wrapper-[0-9.]+") path != null)
+          element.storePaths)
+        elements;
+      clang = wrappers "clang";
+      binutils = wrappers "binutils";
+      maxPriority =
+        if elements == [] then 0
+        else builtins.head (builtins.sort (a: b: a > b) (map priority elements));
+      paths = element: builtins.concatStringsSep " " element.storePaths;
+    in
+      if builtins.length clang == 1
+         && builtins.length binutils == 1
+         && (builtins.head clang).storePaths != (builtins.head binutils).storePaths
+         && priority (builtins.head clang) == priority (builtins.head binutils)
+      then builtins.concatStringsSep "\n" [
+        (toString (maxPriority + 1))
+        (paths (builtins.head binutils))
+        (paths (builtins.head clang))
+      ]
+      else ""
+  ')"; then
+    warn "could not evaluate existing nix profile — activation will retry it"
+    return 0
+  fi
+  [ -n "$repair" ] || return 0
+
+  local -a repair_lines binutils_paths clang_paths
+  mapfile -t repair_lines <<<"$repair"
+  local new_priority="${repair_lines[0]}"
+  read -r -a binutils_paths <<<"${repair_lines[1]}"
+  read -r -a clang_paths <<<"${repair_lines[2]}"
+
+  # Check both actual files instead of assuming future wrapper layouts still
+  # collide on bin/as.
+  local clang_wrapper="" path
+  for path in "${clang_paths[@]}"; do
+    if [ -e "$path/bin/as" ]; then clang_wrapper="$path"; break; fi
+  done
+  [ -n "$clang_wrapper" ] || return 0
+
+  local binutils_wrapper=""
+  for path in "${binutils_paths[@]}"; do
+    if [ -e "$path/bin/as" ]; then binutils_wrapper="$path"; break; fi
+  done
+  [ -n "$binutils_wrapper" ] || return 0
+
+  info "repairing pre-existing clang/binutils bin/as collision (clang priority $new_priority)"
+  nix profile remove --profile "$profile" "$clang_wrapper" \
+    || die "could not remove existing clang entry for profile repair"
+  nix profile add --profile "$profile" --priority "$new_priority" "${clang_paths[@]}" \
+    || die "could not restore clang after profile repair (store paths: ${clang_paths[*]})"
+  ok "existing clang/binutils preserved; nix profile can rebuild"
+}
+
 # --- home-manager -------------------------------------------------------------
 hm_switch() {
   [ -n "$REPO_ROOT" ] || stage_remote_user
@@ -143,6 +221,7 @@ hm_switch() {
   # activation instead of aborting (all the standalone CLI's `-b` flag does)
   export HOME_MANAGER_BACKUP_EXT=pre-home-manager
   have nix || die "nix not on PATH — install failed?"
+  repair_clang_binutils_profile_collision
   local cfg=remote
   [ "$ARCH" = "aarch64" ] && cfg=remote-aarch64
   info "building home-manager generation ($cfg) — mostly cache.nixos.org downloads"
@@ -259,14 +338,18 @@ EOF
 }
 
 # --- main ---------------------------------------------------------------------
-seed_git_identity # before the long steps: closes the no-identity window
-ensure_base
-install_nix
-stage_remote_user
-hm_switch
-install_pi
-nvim_lazy_restore
-nvim_warmup
-enable_linger
+# Guarded so the regression tests can source individual functions without
+# running the host-mutating bootstrap.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  seed_git_identity # before the long steps: closes the no-identity window
+  ensure_base
+  install_nix
+  stage_remote_user
+  hm_switch
+  install_pi
+  nvim_lazy_restore
+  nvim_warmup
+  enable_linger
 
-info "bootstrap done."
+  info "bootstrap done."
+fi
